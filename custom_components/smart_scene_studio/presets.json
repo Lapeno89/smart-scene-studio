@@ -1,0 +1,5 @@
+[
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30001","name":"Amber Evening","kind":"static","category":"ambient","favorite":false,"palette":["#FF9F43","#FFD166"],"targets":[],"brightness_pct":65,"transition":1},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30002","name":"Ocean Calm","kind":"static","category":"ambient","favorite":false,"palette":["#168AAD","#76C893","#B7E4C7"],"targets":[],"brightness_pct":55,"transition":1},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30003","name":"Rose Dawn","kind":"static","category":"ambient","favorite":false,"palette":["#F28482","#F6BD60","#F7EDE2"],"targets":[],"brightness_pct":70,"transition":1}
+]

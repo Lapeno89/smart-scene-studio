@@ -1,0 +1,15 @@
+{
+  "config": {
+    "step": {"user": {"title": "Smart Scene Studio", "description": "Load built-in and saved static scenes."}},
+    "abort": {"already_configured": "Smart Scene Studio is already configured."}
+  },
+  "services": {
+    "apply_scene": {
+      "name": "Apply scene",
+      "description": "Apply a built-in or saved static palette to selected lights.",
+      "fields": {
+        "scene_id": {"name": "Scene ID", "description": "The immutable UUID of a built-in or saved scene."}
+      }
+    }
+  }
+}

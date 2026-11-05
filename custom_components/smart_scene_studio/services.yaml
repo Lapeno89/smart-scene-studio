@@ -1,0 +1,13 @@
+apply_scene:
+  name: Apply scene
+  description: Apply a built-in or saved static palette to selected lights.
+  target:
+    entity:
+      domain: light
+  fields:
+    scene_id:
+      name: Scene ID
+      description: The immutable UUID of a built-in or saved scene.
+      required: true
+      selector:
+        text: {}
