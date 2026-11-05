@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from homeassistant.components.light import ColorMode, LightEntityFeature
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.smart_scene_studio.const import DOMAIN
@@ -23,8 +23,8 @@ async def add_entry(hass):
     result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input={})
     assert result["type"] == "create_entry"
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
     return entry
 
 
