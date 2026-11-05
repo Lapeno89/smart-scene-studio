@@ -19,6 +19,8 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 async def add_entry(hass):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] == "form"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input={})
     assert result["type"] == "create_entry"
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     await hass.config_entries.async_setup(entry.entry_id)
