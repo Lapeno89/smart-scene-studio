@@ -3,8 +3,9 @@
 ## PR-001 integration tests
 - Setup/teardown: integration config flow, loaded `scene.*` entities, integration unload leaves no services/task leaks.
 - Storage: fresh file, valid saved scene, reload preserving UUID and `unique_id`; malformed data and unsupported newer storage version cannot be silently destroyed; migration fixture exercise.
-- Scene activation: two RGB/XY-compatible lights receive appropriate service calls with correct brightness and transition representation.
-- Capability fallback: white-only light gets `color_temp_kelvin` only if explicitly supported; brightness-only gets no color attribute; unavailable and missing lights get no commands.
+- Scene activation: compatible RGB/XY/HS/RGBW/RGBWW lights receive supported payloads with correct brightness and transition representation.
+- Capability fallback: white-only lights get `color_temp_kelvin` only if explicitly selected and supported; brightness-only lights get no color attribute; unavailable and missing lights get no commands.
+- Target intent: disabled assignments are skipped, off assignments call `light.turn_off`, and explicit RGB colors override palette selection.
 - Error semantics: one light raises, another succeeds; action reports partial failure without corrupting persistent scenes.
 - Runtime: no direct Zigbee2MQTT publish and no actual HA device control in tests.
 - Stability: rename scene without changing `unique_id`, delete scene removes registry entity, builtin presets immutable.
@@ -18,3 +19,9 @@
 
 ## Required evidence per increment
 Record exact test command, environment versions, exit status, number of tests passing/failing and known untested hardware assumptions. Do not claim compatibility with untested devices.
+
+Run the integration suite with Home Assistant initialized before pytest discovers plugins:
+
+```sh
+uv run python -c 'import homeassistant, pytest; raise SystemExit(pytest.main(["-q"]))'
+```

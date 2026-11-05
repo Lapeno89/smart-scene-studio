@@ -2,7 +2,7 @@
 
 ## PR-001 local package
 
-PR-001 is an initial local implementation. It has not been published to a remote repository or Home Assistant Marketplace. Before distribution, replace the placeholder documentation URL in `manifest.json` with the canonical repository documentation URL and run the repository CI, hassfest, Marketplace validation, and Home Assistant integration tests.
+PR-001 is an initial implementation under review in the GitHub repository. It is not merged into the development branch or published to the Home Assistant Marketplace. Before distribution, run the repository CI, hassfest, Marketplace validation, and Home Assistant integration tests.
 
 ## Upgrade
 

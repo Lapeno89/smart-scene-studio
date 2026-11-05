@@ -15,6 +15,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --group test
       - run: uv run ruff check .
-      - run: uv run pytest -q
+      - run: uv run python -c 'import homeassistant, pytest; raise SystemExit(pytest.main(["-q"]))'
       - uses: home-assistant/actions/hassfest@master
       - uses: hacs/action@main

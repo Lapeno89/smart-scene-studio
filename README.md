@@ -8,14 +8,15 @@ Smart Scene Studio is an original Home Assistant custom integration for saved st
 - Native `scene.*` entities for built-in and saved scenes.
 - Versioned Home Assistant `Store` persistence for user scenes.
 - The `smart_scene_studio.apply_scene` action applies a palette to explicitly selected light entities.
-- Capability checks choose a supported XY or RGB mode. White color temperature is only sent when explicitly selected with a valid Kelvin value and supported range. Unsupported, missing, and unavailable lights are skipped.
+- Capability checks choose a supported XY, RGB, HS, RGBW, RGBWW, or brightness mode at activation time. White color temperature is sent only when explicitly selected with a valid Kelvin value and supported range. Unsupported, missing, and unavailable lights are skipped.
 - Brightness is included only for dimmable lights. Transition is included only when the entity advertises transition support.
+- Saved target assignments can be disabled, set to turn off, or given an explicit RGB color without changing scene identity.
 
 User scenes are currently written through the repository layer; a user-facing editor and CRUD action are not part of PR-001. Changes made through the internal repository are exposed as scene entities after reloading the integration. The built-in scene entities have no saved target assignments; apply a built-in palette to chosen lights with the `apply_scene` action.
 
 ## Installation
 
-Copy `custom_components/smart_scene_studio` into the Home Assistant configuration's `custom_components` directory, restart Home Assistant, then add **Smart Scene Studio** through **Settings → Devices & services → Add integration**. For Marketplace distribution, publish the repository and add it to the Marketplace using its supported community integration workflow. No remote repository or Marketplace listing is created by this source package.
+Copy `custom_components/smart_scene_studio` into the Home Assistant configuration's `custom_components` directory, restart Home Assistant, then add **Smart Scene Studio** through **Settings → Devices & services → Add integration**. Marketplace distribution requires adding the repository through the supported community integration workflow.
 
 ## Apply a preset
 
@@ -39,10 +40,10 @@ Requires Python 3.14.2 or newer and `uv`.
 ```sh
 uv sync --group test
 uv run ruff check .
-uv run pytest -q
+uv run python -c 'import homeassistant, pytest; raise SystemExit(pytest.main(["-q"]))'
 ```
 
-Home Assistant Core is pinned to 2026.11.0 in `pyproject.toml`. Tests stub `light.turn_on` and never target a physical Home Assistant instance.
+Home Assistant Core is pinned to 2026.11.0 in `pyproject.toml`. The test runner imports Home Assistant before pytest plugin discovery so Core can install its httpx compatibility aliases. Tests stub light service calls and never target a physical Home Assistant instance.
 
 ## Storage and rollback
 

@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
-_COLOR_MODES = {"xy", "rgb", "color_temp_kelvin", "brightness", "none"}
+_COLOR_MODES = {"xy", "rgb", "hs", "rgbw", "rgbww", "color_temp_kelvin", "brightness", "none"}
 
 
 def validate_scene(value: Any) -> dict[str, Any]:
@@ -61,11 +61,21 @@ def validate_scene(value: Any) -> dict[str, Any]:
             raise ValueError("Target color_index is outside the palette")
         item: dict[str, Any] = {
             "entity_id": entity_id,
-            "enabled": target.get("enabled", True) is True,
+            "enabled": target.get("enabled", True),
             "color_index": color_index,
+            "state": target.get("state", "on"),
         }
+        if not isinstance(item["enabled"], bool):
+            raise ValueError("Target enabled must be boolean")
+        if item["state"] not in ("on", "off"):
+            raise ValueError("Target state must be 'on' or 'off'")
         if mode is not None:
             item["color_mode"] = mode
+        color = target.get("color")
+        if color is not None:
+            if not isinstance(color, str) or not _HEX_COLOR.fullmatch(color):
+                raise ValueError("Target color must be an RGB hex value")
+            item["color"] = color.upper()
         for numeric_key, low, high in (("brightness_pct", 1, 100), ("transition", 0, 300)):
             numeric = target.get(numeric_key)
             if numeric is not None:

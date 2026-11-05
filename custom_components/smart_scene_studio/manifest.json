@@ -1,9 +1,9 @@
 {
   "domain": "smart_scene_studio",
   "name": "Smart Scene Studio",
-  "codeowners": [],
+  "codeowners": ["@Lapeno89"],
   "config_flow": true,
-  "documentation": "https://github.com/example/smart-scene-studio",
+  "documentation": "https://github.com/Lapeno89/smart-scene-studio",
   "integration_type": "helper",
   "iot_class": "local_push",
   "version": "0.1.0"

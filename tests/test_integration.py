@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from homeassistant.components.light import ColorMode
+from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.exceptions import HomeAssistantError
 
@@ -28,6 +28,7 @@ async def add_entry(hass):
 
 async def test_config_flow_and_clean_unload(hass) -> None:
     entry = await add_entry(hass)
+    assert len(hass.data[DOMAIN]["scene_entities"]) == 3
     assert hass.states.get("scene.amber_evening") is not None
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -63,7 +64,7 @@ async def test_service_skips_unsupported_and_unavailable(hass) -> None:
         return_response=True,
     )
     assert light_calls.await_count == 2
-    payloads = [call.args[0] for call in light_calls.await_args_list]
+    payloads = [call.args[0].data for call in light_calls.await_args_list]
     assert payloads[0]["entity_id"] == "light.rgb"
     assert "rgb_color" in payloads[0]
     assert payloads[1]["entity_id"] == "light.xy"
@@ -139,6 +140,91 @@ async def test_store_persists_scene_identity(hass) -> None:
     await final.async_load()
     assert final.scenes[0]["id"] == scene_id
     assert final.scenes[0]["name"] == "Renamed"
+
+
+async def test_color_modes_and_brightness_payloads(hass) -> None:
+    await add_entry(hass)
+    light_calls = AsyncMock()
+    hass.services.async_register("light", "turn_on", light_calls)
+    states = {
+        "light.hs": {"supported_color_modes": [ColorMode.HS]},
+        "light.rgbw": {"supported_color_modes": [ColorMode.RGBW]},
+        "light.rgbww": {
+            "supported_color_modes": [ColorMode.RGBWW],
+            "min_color_temp_kelvin": 2000,
+            "max_color_temp_kelvin": 6500,
+        },
+        "light.brightness": {"supported_color_modes": [ColorMode.BRIGHTNESS]},
+    }
+    for entity_id, attrs in states.items():
+        hass.states.async_set(entity_id, "off", attrs)
+    result = await hass.services.async_call(
+        DOMAIN,
+        "apply_scene",
+        {
+            "scene_id": "b88ea8a1-0db4-4df5-9e91-4d93a3d30001",
+            "entity_id": list(states),
+        },
+        blocking=True,
+        return_response=True,
+    )
+    assert result["applied"] == list(states)
+    payloads = {
+        call.args[0].data["entity_id"]: call.args[0].data for call in light_calls.await_args_list
+    }
+    assert "hs_color" in payloads["light.hs"]
+    assert "rgbw_color" in payloads["light.rgbw"]
+    assert "rgbww_color" in payloads["light.rgbww"]
+    assert set(payloads["light.brightness"]) == {"entity_id", "brightness_pct"}
+
+
+async def test_off_and_disabled_target_intentions(hass) -> None:
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    scene_id = str(uuid4())
+    await repository.async_save_scene(
+        {
+            "id": scene_id,
+            "name": "Off intents",
+            "kind": "static",
+            "palette": ["#112233", "#445566"],
+            "targets": [
+                {
+                    "entity_id": "light.off",
+                    "state": "off",
+                    "transition": 2,
+                },
+                {"entity_id": "light.disabled", "enabled": False},
+            ],
+        }
+    )
+    turn_off = AsyncMock()
+    turn_on = AsyncMock()
+    hass.services.async_register("light", "turn_off", turn_off)
+    hass.services.async_register("light", "turn_on", turn_on)
+    for entity_id in ("light.off", "light.disabled"):
+        hass.states.async_set(
+            entity_id,
+            "on",
+            {
+                "supported_color_modes": [ColorMode.RGB],
+                "supported_features": LightEntityFeature.TRANSITION,
+            },
+        )
+    result = await hass.services.async_call(
+        DOMAIN,
+        "apply_scene",
+        {"scene_id": scene_id, "entity_id": ["light.off", "light.disabled"]},
+        blocking=True,
+        return_response=True,
+    )
+    assert result["applied"] == ["light.off"]
+    assert result["skipped"] == ["light.disabled"]
+    assert turn_off.await_args.args[0].data == {
+        "entity_id": "light.off",
+        "transition": 2,
+    }
+    turn_on.assert_not_awaited()
 
 
 async def test_newer_storage_version_is_read_only(hass, monkeypatch) -> None:

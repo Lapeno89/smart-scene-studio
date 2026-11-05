@@ -33,3 +33,27 @@ def test_rejects_invalid_palette(palette: list[str]) -> None:
     value["palette"] = palette
     with pytest.raises(ValueError):
         validate_scene(value)
+
+
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ({"entity_id": "light.desk", "enabled": "false"}, "enabled must be boolean"),
+        ({"entity_id": "light.desk", "state": "standby"}, "state must be 'on' or 'off'"),
+        ({"entity_id": "light.desk", "color": "nope"}, "RGB hex value"),
+        ({"entity_id": "light.desk", "color_mode": "infrared"}, "Unsupported color mode"),
+    ],
+)
+def test_rejects_invalid_target_settings(target: dict, message: str) -> None:
+    value = scene()
+    value["targets"] = [target]
+    with pytest.raises(ValueError, match=message):
+        validate_scene(value)
+
+
+def test_normalizes_explicit_target_color_and_off_state() -> None:
+    value = scene()
+    value["targets"] = [{"entity_id": "light.desk", "color": "#a1b2c3", "state": "off"}]
+    target = validate_scene(value)["targets"][0]
+    assert target["color"] == "#A1B2C3"
+    assert target["state"] == "off"
