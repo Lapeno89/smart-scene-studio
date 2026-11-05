@@ -18,3 +18,5 @@ jobs:
       - run: uv run python -c 'import homeassistant, pytest; raise SystemExit(pytest.main(["-p", "tests.pytest_compat", "-q"]))'
       - uses: home-assistant/actions/hassfest@master
       - uses: hacs/action@main
+        with:
+          category: integration
