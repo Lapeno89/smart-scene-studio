@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DATA_REPOSITORY,
+    DATA_SCENE_ENTITIES,
     DOMAIN,
     PLATFORMS,
     SERVICE_APPLY_SCENE,
@@ -83,4 +84,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     hass.data[DOMAIN].pop(entry.entry_id, None)
+    hass.data[DOMAIN].pop(DATA_SCENE_ENTITIES, None)
     return True

@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.smart_scene_studio.const import DOMAIN
@@ -34,7 +35,8 @@ async def test_config_flow_and_clean_unload(hass) -> None:
     assert hass.states.get("scene.amber_evening") is not None
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("scene.amber_evening") is None
+    assert hass.states.get("scene.amber_evening").state == STATE_UNAVAILABLE
+    assert "scene_entities" not in hass.data[DOMAIN]
 
 
 async def test_service_skips_unsupported_and_unavailable(hass) -> None:
