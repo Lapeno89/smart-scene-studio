@@ -30,6 +30,7 @@ _SCENE_FIELD_ORDER = (
     "transition",
     "created_at",
     "updated_at",
+    "source",
 )
 _SCENE_FIELDS = set(_SCENE_FIELD_ORDER)
 _BUNDLE_SCENE_FIELDS = _SCENE_FIELDS | {"provenance"}
@@ -51,12 +52,8 @@ def create_export_bundle(
     scene_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a secret-free, allow-listed JSON bundle."""
-    available = [
-        (_export_scene(scene), "builtin")
-        for scene in builtins
-    ] + [
-        (_export_scene(scene), "user")
-        for scene in user_scenes
+    available = [(_export_scene(scene), "builtin") for scene in builtins] + [
+        (_export_scene(scene), _scene_provenance(scene, "user")) for scene in user_scenes
     ]
     by_id = {scene["id"]: (scene, provenance) for scene, provenance in available}
 
@@ -77,10 +74,7 @@ def create_export_bundle(
     bundle = {
         "format": BUNDLE_FORMAT,
         "version": BUNDLE_VERSION,
-        "scenes": [
-            {**scene, "provenance": provenance}
-            for scene, provenance in selected
-        ],
+        "scenes": [{**scene, "provenance": provenance} for scene, provenance in selected],
     }
     _validate_bundle_size(bundle)
     return bundle
@@ -93,6 +87,8 @@ def plan_scene_import(
     builtins: list[dict[str, Any]],
     *,
     now: str | None = None,
+    deduplicate_content: bool = True,
+    remap_targets: bool = True,
 ) -> dict[str, Any]:
     """Validate a bundle and return a deterministic, non-mutating import plan."""
     _validate_bundle_size({"bundle": bundle, "target_mappings": target_mappings})
@@ -125,8 +121,8 @@ def plan_scene_import(
         if extra := source.keys() - _BUNDLE_SCENE_FIELDS:
             raise ValueError(f"Unsupported bundled scene fields: {', '.join(sorted(extra))}")
         provenance = source.get("provenance", "user")
-        if provenance not in ("builtin", "user"):
-            raise ValueError("Bundled scene provenance must be builtin or user")
+        if provenance not in ("builtin", "user", "hue_import"):
+            raise ValueError("Unsupported bundled scene provenance")
         candidate = validate_scene(
             {
                 **{key: value for key, value in source.items() if key != "provenance"},
@@ -135,32 +131,34 @@ def plan_scene_import(
             }
         )
         source_target_ids = {target["entity_id"] for target in candidate["targets"]}
-        referenced_targets.update(source_target_ids)
-        unmapped_for_scene = source_target_ids - mappings.keys()
+        if remap_targets:
+            referenced_targets.update(source_target_ids)
+            unmapped_for_scene = source_target_ids - mappings.keys()
+        else:
+            unmapped_for_scene = set()
         remapped_targets = []
         destinations: set[str] = set()
         for target in candidate["targets"]:
             original_id = target["entity_id"]
             mapped_id = mappings.get(original_id)
+            if not remap_targets:
+                remapped_targets.append(target)
+                continue
             if mapped_id is None:
                 remapped_targets.append({**target, "enabled": False})
                 continue
             if mapped_id in destinations:
-                raise ValueError(
-                    f"Multiple targets in scene {candidate['id']} map to {mapped_id}"
-                )
+                raise ValueError(f"Multiple targets in scene {candidate['id']} map to {mapped_id}")
             destinations.add(mapped_id)
             remapped_targets.append({**target, "entity_id": mapped_id})
         candidate = validate_scene({**candidate, "targets": remapped_targets})
         fingerprint = _fingerprint(candidate)
         previous_fingerprint = source_id_fingerprints.setdefault(candidate["id"], fingerprint)
         if previous_fingerprint != fingerprint:
-            raise ValueError(
-                f"Conflicting scene definitions share source UUID {candidate['id']}"
-            )
+            raise ValueError(f"Conflicting scene definitions share source UUID {candidate['id']}")
         normalized.append((candidate, provenance, unmapped_for_scene))
 
-    unused_mappings = mappings.keys() - referenced_targets
+    unused_mappings = mappings.keys() - referenced_targets if remap_targets else set()
     if unused_mappings:
         raise ValueError(
             f"Target mappings do not match bundled lights: {', '.join(sorted(unused_mappings))}"
@@ -183,9 +181,11 @@ def plan_scene_import(
         source_id = candidate["id"]
         unmapped_targets.update(original_target_ids)
         fingerprint = _fingerprint(candidate)
-        duplicate_id = existing_fingerprints.get(fingerprint) or planned_fingerprints.get(
-            fingerprint
-        )
+        duplicate_id = None
+        if deduplicate_content:
+            duplicate_id = existing_fingerprints.get(fingerprint) or planned_fingerprints.get(
+                fingerprint
+            )
         if duplicate_id is not None:
             items.append(
                 {
@@ -273,6 +273,13 @@ def _export_scene(scene: dict[str, Any]) -> dict[str, Any]:
     return exported
 
 
+def _scene_provenance(scene: dict[str, Any], default: str) -> str:
+    source = scene.get("source")
+    if isinstance(source, dict) and source.get("provider") == "hue_v2":
+        return "hue_import"
+    return default
+
+
 def _validate_target_mappings(value: Any) -> dict[str, str]:
     """Validate explicit source-to-destination light mappings."""
     if not isinstance(value, dict):
@@ -286,11 +293,7 @@ def _validate_target_mappings(value: Any) -> dict[str, str]:
 
 
 def _valid_light_entity_id(value: Any) -> bool:
-    return bool(
-        isinstance(value, str)
-        and len(value) <= 255
-        and _LIGHT_ENTITY_ID.fullmatch(value)
-    )
+    return bool(isinstance(value, str) and len(value) <= 255 and _LIGHT_ENTITY_ID.fullmatch(value))
 
 
 def _fingerprint(scene: dict[str, Any]) -> str:

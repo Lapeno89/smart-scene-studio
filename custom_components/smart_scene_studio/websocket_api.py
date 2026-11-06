@@ -16,10 +16,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DATA_PRESETS, DATA_REPOSITORY, DATA_SCENE_MANAGER, DOMAIN
+from .hue_v2 import (
+    MAX_HUE_RESOURCE_BYTES,
+    convert_hue_v2_resources,
+    hue_import_report,
+    hue_resource_to_dict,
+    plan_hue_scene_import,
+    remap_hue_scene_targets,
+)
 from .models import validate_scene
 from .repository import SceneRepository, UnsupportedStorageVersion
 from .scene_bundle import (
     MAX_BUNDLE_BYTES,
+    MAX_BUNDLE_SCENES,
     create_export_bundle,
     import_report,
     plan_scene_import,
@@ -38,6 +47,7 @@ _CREATE_FIELDS = {
 _UPDATE_FIELDS = _CREATE_FIELDS
 _MAX_COMMAND_BYTES = 64 * 1024
 _IMPORT_FIELDS = {"bundle", "dry_run", "target_mappings"}
+_HUE_IMPORT_FIELDS = {"bridge_id", "dry_run", "scene_ids", "target_mappings"}
 
 
 def async_setup(hass: HomeAssistant) -> None:
@@ -50,6 +60,9 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_delete_scene)
     websocket_api.async_register_command(hass, websocket_export_scenes)
     websocket_api.async_register_command(hass, websocket_import_scenes)
+    websocket_api.async_register_command(hass, websocket_list_hue_resources)
+    websocket_api.async_register_command(hass, websocket_import_hue_scenes)
+    websocket_api.async_register_command(hass, websocket_remap_hue_scene)
 
 
 def _get_runtime(
@@ -109,6 +122,9 @@ def _entity_sync_status(synchronized: bool) -> dict[str, Any]:
 
 def _api_scene(scene: dict[str, Any], provenance: str) -> dict[str, Any]:
     """Return a detached API representation with explicit source provenance."""
+    source = scene.get("source")
+    if isinstance(source, dict) and source.get("provider") == "hue_v2":
+        provenance = "hue_import"
     return {**deepcopy(scene), "provenance": provenance}
 
 
@@ -438,6 +454,7 @@ async def websocket_import_scenes(
     repository, presets, manager = _get_runtime(hass)
     mappings = msg.get("target_mappings", {})
     if msg["dry_run"]:
+
         async def preview() -> tuple[dict[str, Any], dict[str, Any]]:
             plan = plan_scene_import(msg["bundle"], mappings, repository.scenes, list(presets))
             capacity = await repository.async_check_batch_capacity(plan["scenes"])
@@ -460,14 +477,258 @@ async def websocket_import_scenes(
         return plan
 
     try:
-        result, synchronized = await _async_mutate_and_sync(
-            manager, repository, presets, mutation
-        )
+        result, synchronized = await _async_mutate_and_sync(manager, repository, presets, mutation)
     except (OSError, ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
     report = import_report(result, dry_run=False)
     report["entity_sync"] = _entity_sync_status(synchronized)
     connection.send_result(msg["id"], {"report": report})
+
+
+def _loaded_hue_entries(hass: HomeAssistant) -> list[Any]:
+    """Return already configured Hue config entries without reading credentials."""
+    return list(hass.config_entries.async_loaded_entries("hue"))
+
+
+def _get_hue_runtime(hass: HomeAssistant, bridge_id: str) -> tuple[Any, Any]:
+    """Resolve an existing Home Assistant Hue V2 runtime by its public bridge ID."""
+    if not isinstance(bridge_id, str) or not bridge_id:
+        raise HomeAssistantError("bridge_id is required")
+    for entry in _loaded_hue_entries(hass):
+        bridge = getattr(entry, "runtime_data", None)
+        api = getattr(bridge, "api", None)
+        if api is None or getattr(bridge, "api_version", None) != 2:
+            continue
+        config = getattr(api, "config", None)
+        current_id = getattr(config, "bridge_id", None)
+        if current_id == bridge_id:
+            return entry, api
+    raise HomeAssistantError(
+        "No loaded Hue Bridge V2 integration matches bridge_id; configure it "
+        "in Home Assistant first"
+    )
+
+
+async def _async_hue_snapshot(api: Any, *, refresh: bool) -> dict[str, Any]:
+    """Build an allow-listed snapshot from the loaded Hue API V2 resource cache."""
+    if refresh:
+        try:
+            await api.fetch_full_state()
+        except Exception as err:
+            raise HomeAssistantError(
+                "Could not read resources from the configured Hue V2 bridge"
+            ) from err
+
+    def resources(controller: Any) -> list[dict[str, Any]]:
+        return [hue_resource_to_dict(item) for item in controller]
+
+    scenes = resources(api.scenes)
+    lights = resources(api.lights)
+    rooms = resources(api.rooms)
+    zones = resources(api.zones)
+    snapshot = {
+        "scenes": scenes,
+        "lights": lights,
+        "groups": [*rooms, *zones],
+    }
+    snapshot_size = len(json.dumps(snapshot, separators=(",", ":"), default=str).encode())
+    if snapshot_size > MAX_HUE_RESOURCE_BYTES:
+        raise HomeAssistantError("Hue resource snapshot exceeds the 4 MiB limit")
+    return snapshot
+
+
+@websocket_api.ws_require_user()
+@websocket_api.async_response
+@websocket_api.websocket_command(
+    {probatio.Required("type"): f"{DOMAIN}/hue/list", probatio.Required("bridge_id"): str}
+)
+async def websocket_list_hue_resources(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List cached V2 scene/light choices for an explicit mapping preview."""
+    _reject_extra_fields(msg, {"bridge_id"})
+    _, api = _get_hue_runtime(hass, msg["bridge_id"])
+    snapshot = await _async_hue_snapshot(api, refresh=False)
+    connection.send_result(
+        msg["id"],
+        {
+            "bridge_id": msg["bridge_id"],
+            "scenes": [
+                {
+                    "id": resource.get("id"),
+                    "name": _nested_name(resource, "metadata"),
+                    "group_id": _nested_value(resource, "group", "rid"),
+                    "auto_dynamic": bool(resource.get("auto_dynamic", False)),
+                }
+                for resource in snapshot["scenes"]
+                if resource.get("type") == "scene"
+            ],
+            "source_lights": [
+                {"id": light.get("id"), "name": _nested_name(light, "metadata")}
+                for light in snapshot["lights"]
+                if light.get("type") == "light"
+            ],
+            "target_lights": [
+                {"entity_id": state.entity_id, "name": state.name or state.entity_id}
+                for state in hass.states.async_all("light")
+            ],
+        },
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): f"{DOMAIN}/hue/import",
+        probatio.Required("bridge_id"): str,
+        probatio.Required("dry_run"): bool,
+        probatio.Optional("scene_ids"): list,
+        probatio.Optional("target_mappings"): dict,
+    }
+)
+async def websocket_import_hue_scenes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Preview or save Hue scenes as independent local Smart Scene Studio scenes."""
+    _reject_extra_fields(msg, _HUE_IMPORT_FIELDS)
+    try:
+        request_size = len(json.dumps(msg, separators=(",", ":")).encode())
+    except (TypeError, ValueError) as err:
+        raise HomeAssistantError("Hue import request must contain JSON-compatible values") from err
+    if request_size > _MAX_COMMAND_BYTES:
+        raise HomeAssistantError("Hue import request exceeds the 64 KiB limit")
+    repository, presets, manager = _get_runtime(hass)
+    _, api = _get_hue_runtime(hass, msg["bridge_id"])
+    snapshot = await _async_hue_snapshot(api, refresh=True)
+    try:
+        converted, conversion_report = convert_hue_v2_resources(
+            snapshot["scenes"],
+            snapshot["lights"],
+            snapshot["groups"],
+            msg["bridge_id"],
+            msg.get("target_mappings", {}),
+            available_targets={
+                state.entity_id: state.attributes for state in hass.states.async_all("light")
+            },
+        )
+        selected_ids = msg.get("scene_ids")
+        if selected_ids is not None:
+            if (
+                not isinstance(selected_ids, list)
+                or len(selected_ids) > MAX_BUNDLE_SCENES
+                or any(not isinstance(item, str) for item in selected_ids)
+                or len(set(selected_ids)) != len(selected_ids)
+            ):
+                raise ValueError("scene_ids must be a unique list of Hue scene UUIDs")
+            selected = set(selected_ids)
+            known = {scene["source"]["id"] for scene in converted}
+            if missing := selected - known:
+                raise ValueError(f"Unknown Hue scene IDs: {', '.join(sorted(missing))}")
+            converted = [scene for scene in converted if scene["source"]["id"] in selected]
+        conversion_report = hue_import_report(converted)
+
+        async def build_plan() -> tuple[dict[str, Any], dict[str, Any]]:
+            plan = plan_hue_scene_import(converted, repository.scenes, list(presets))
+            capacity = await repository.async_check_batch_capacity(plan["scenes"])
+            return plan, capacity
+
+        if msg["dry_run"]:
+            plan, capacity = await manager.async_run_serialized(build_plan)
+        else:
+
+            async def mutation() -> dict[str, Any]:
+                plan = plan_hue_scene_import(converted, repository.scenes, list(presets))
+                await repository.async_save_scenes(plan["scenes"])
+                return plan
+
+            plan, synchronized = await _async_mutate_and_sync(
+                manager, repository, presets, mutation
+            )
+            capacity = None
+    except (ValueError, OSError, UnsupportedStorageVersion) as err:
+        raise HomeAssistantError(str(err)) from err
+
+    report = import_report(plan, dry_run=msg["dry_run"], capacity=capacity)
+    report["conversion"] = conversion_report
+    report["source_light_count"] = len(snapshot["lights"])
+    report["entity_sync"] = (
+        {"status": "not_run"} if msg["dry_run"] else _entity_sync_status(synchronized)
+    )
+    connection.send_result(msg["id"], {"report": report})
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): f"{DOMAIN}/hue/remap",
+        probatio.Required("scene_id"): str,
+        probatio.Required("target_mappings"): dict,
+    }
+)
+async def websocket_remap_hue_scene(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Map a saved Hue import to this installation's current HA light entities."""
+    _reject_extra_fields(msg, {"scene_id", "target_mappings"})
+    repository, presets, manager = _get_runtime(hass)
+
+    async def mutation() -> dict[str, Any]:
+        current = next(
+            (scene for scene in repository.scenes if scene["id"] == msg["scene_id"]), None
+        )
+        if current is None:
+            raise HomeAssistantError("Imported Hue scene not found")
+        if (
+            not isinstance(current.get("source"), dict)
+            or current["source"].get("provider") != "hue_v2"
+        ):
+            raise HomeAssistantError("Scene is not a Hue V2 import")
+        remapped = remap_hue_scene_targets(
+            current,
+            msg["target_mappings"],
+            available_targets={
+                state.entity_id: state.attributes for state in hass.states.async_all("light")
+            },
+        )
+        return await repository.async_update_scene(
+            msg["scene_id"],
+            {"targets": remapped["targets"], "source": remapped["source"]},
+        )
+
+    try:
+        updated, synchronized = await _async_mutate_and_sync(
+            manager,
+            repository,
+            presets,
+            mutation,
+        )
+    except (ValueError, OSError, UnsupportedStorageVersion) as err:
+        raise HomeAssistantError(str(err)) from err
+    connection.send_result(
+        msg["id"],
+        {
+            "scene": _api_scene(updated, "user"),
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
+
+
+def _nested_name(value: dict[str, Any], key: str) -> str | None:
+    child = value.get(key)
+    return child.get("name") if isinstance(child, dict) else None
+
+
+def _nested_value(value: dict[str, Any], key: str, child_key: str) -> Any:
+    child = value.get(key)
+    return child.get(child_key) if isinstance(child, dict) else None
 
 
 async def async_load_presets(hass: HomeAssistant) -> list[dict[str, Any]]:
