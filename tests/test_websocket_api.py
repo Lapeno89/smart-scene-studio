@@ -1,5 +1,6 @@
 """Authenticated scene CRUD API tests; the websocket server is test-only."""
 
+import asyncio
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
+from custom_components.smart_scene_studio.repository import SceneRepository
 from tests.test_integration import add_entry
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -168,6 +170,146 @@ async def test_native_scene_entities_track_crud_without_reload(
     assert scene_id not in hass.data[DOMAIN][DATA_SCENE_ENTITIES]
     assert hass.states.get(entity_id) is None
     assert er.async_get(hass).async_get_entity_id("scene", DOMAIN, scene_id) is None
+
+
+async def test_concurrent_api_updates_reconcile_the_final_saved_snapshot(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    monkeypatch,
+) -> None:
+    """Serialize scene persistence and HA synchronization as one mutation."""
+    entry = await add_entry(hass)
+    first_client = await hass_ws_client(hass)
+    second_client = await hass_ws_client(hass)
+    created = await request(
+        first_client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Concurrency scene",
+                "targets": [{"entity_id": "light.initial"}],
+            },
+        },
+    )
+    scene_id = created["result"]["scene"]["id"]
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    manager = hass.data[DOMAIN][entry.entry_id]["scene_manager"]
+    original_sync = manager._async_sync_locked
+    first_sync_entered = asyncio.Event()
+    release_first_sync = asyncio.Event()
+    sync_calls = 0
+
+    async def pause_first_sync(definitions) -> None:
+        nonlocal sync_calls
+        sync_calls += 1
+        if sync_calls == 1:
+            first_sync_entered.set()
+            await release_first_sync.wait()
+        await original_sync(definitions)
+
+    monkeypatch.setattr(manager, "_async_sync_locked", pause_first_sync)
+    first_update = asyncio.create_task(
+        request(
+            first_client,
+            {
+                "type": f"{DOMAIN}/scene/update",
+                "scene_id": scene_id,
+                "updates": {
+                    "name": "First update",
+                    "targets": [{"entity_id": "light.first"}],
+                },
+            },
+        )
+    )
+    await first_sync_entered.wait()
+    second_update = asyncio.create_task(
+        request(
+            second_client,
+            {
+                "type": f"{DOMAIN}/scene/update",
+                "scene_id": scene_id,
+                "updates": {
+                    "name": "Final update",
+                    "targets": [{"entity_id": "light.final"}],
+                },
+            },
+        )
+    )
+    try:
+        await asyncio.sleep(0)
+        assert repository.scenes[0]["name"] == "First update"
+    finally:
+        release_first_sync.set()
+
+    first_response, second_response = await asyncio.gather(first_update, second_update)
+    assert first_response["success"]
+    assert second_response["success"]
+    persisted = repository.scenes[0]
+    reloaded_repository = SceneRepository(hass)
+    await reloaded_repository.async_load()
+    stored = reloaded_repository.scenes[0]
+    entity = hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id]
+    assert stored["name"] == "Final update"
+    assert stored["targets"] == [
+        {"entity_id": "light.final", "enabled": True, "color_index": 0, "state": "on"}
+    ]
+    assert persisted["name"] == "Final update"
+    assert persisted["targets"][0]["entity_id"] == "light.final"
+    assert entity._definition["name"] == persisted["name"]
+    assert entity._definition["targets"] == persisted["targets"]
+    assert hass.states.get(entity.entity_id).name == persisted["name"]
+
+
+async def test_platform_sync_failure_is_reported_as_pending_and_retried(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    monkeypatch,
+) -> None:
+    """A platform failure does not undo saved data and the next read retries sync."""
+    entry = await add_entry(hass)
+    client = await hass_ws_client(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    manager = hass.data[DOMAIN][entry.entry_id]["scene_manager"]
+    platform = manager._platform
+    original_add_entities = platform.async_add_entities
+    fail_once = True
+
+    async def fail_first_add(entities, *args, **kwargs) -> None:
+        nonlocal fail_once
+        if fail_once:
+            # HA logs and absorbs per-entity add errors; emulate no registration.
+            fail_once = False
+            return
+        await original_add_entities(entities, *args, **kwargs)
+
+    monkeypatch.setattr(platform, "async_add_entities", fail_first_add)
+    response = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Saved while platform is unavailable",
+                "targets": [{"entity_id": "light.test_lamp"}],
+            },
+        },
+    )
+
+    assert response["success"]
+    scene = response["result"]["scene"]
+    assert response["result"]["entity_sync"]["status"] == "pending"
+    assert "saved" in response["result"]["entity_sync"]["message"]
+    assert repository.scenes[0]["id"] == scene["id"]
+    assert manager.sync_pending
+    assert scene["id"] not in manager.entities
+
+    retried = await request(client, {"type": f"{DOMAIN}/scene/list"})
+    assert retried["success"]
+    assert retried["result"]["entity_sync"]["status"] == "complete"
+    assert not manager.sync_pending
+    assert scene["id"] in manager.entities
+    assert hass.states.get(manager.entities[scene["id"]].entity_id) is not None
 
 
 async def test_native_scene_enforces_mapped_light_control_permission(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,8 +62,40 @@ async def _async_sync_entities(
     repository: SceneRepository,
     presets: tuple[dict[str, Any], ...],
 ) -> None:
-    """Reconcile the live scene platform after a successful repository write."""
+    """Reconcile the live scene platform during initial setup."""
     await manager.async_sync((*presets, *repository.scenes))
+
+
+async def _async_mutate_and_sync(
+    manager: Any,
+    repository: SceneRepository,
+    presets: tuple[dict[str, Any], ...],
+    mutation: Callable[[], Awaitable[Any]],
+) -> tuple[Any, bool]:
+    """Persist a mutation and reconcile the latest snapshot under one manager lock."""
+    return await manager.async_mutate_and_sync(mutation, lambda: (*presets, *repository.scenes))
+
+
+async def _async_reconcile_if_pending(
+    manager: Any,
+    repository: SceneRepository,
+    presets: tuple[dict[str, Any], ...],
+) -> bool:
+    """Retry a failed platform reconciliation without changing persisted scenes."""
+    return await manager.async_reconcile_if_pending(lambda: (*presets, *repository.scenes))
+
+
+def _entity_sync_status(synchronized: bool) -> dict[str, Any]:
+    """Explain whether the persisted scene is reflected in native HA entities."""
+    if synchronized:
+        return {"status": "complete"}
+    return {
+        "status": "pending",
+        "message": (
+            "The scene change is saved. Native entity synchronization failed; "
+            "a later scene API request will retry it."
+        ),
+    }
 
 
 def _api_scene(scene: dict[str, Any], provenance: str) -> dict[str, Any]:
@@ -114,10 +147,17 @@ async def websocket_list_scenes(
 ) -> None:
     """Return immutable built-ins and the configured user's saved scenes."""
     _reject_extra_fields(msg, set())
-    repository, presets, _ = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
+    synchronized = await _async_reconcile_if_pending(manager, repository, presets)
     scenes = [_api_scene(scene, "builtin") for scene in presets]
     scenes.extend(_api_scene(scene, "user") for scene in repository.scenes)
-    connection.send_result(msg["id"], {"scenes": scenes})
+    connection.send_result(
+        msg["id"],
+        {
+            "scenes": scenes,
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 @websocket_api.ws_require_user()
@@ -135,11 +175,18 @@ async def websocket_get_scene(
 ) -> None:
     """Get one built-in or user-authored scene by immutable UUID."""
     _reject_extra_fields(msg, {"scene_id"})
-    repository, presets, _ = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
+    synchronized = await _async_reconcile_if_pending(manager, repository, presets)
     scene, provenance = _find_scene(msg["scene_id"], repository, presets)
     if scene is None or provenance is None:
         raise HomeAssistantError("Scene not found")
-    connection.send_result(msg["id"], {"scene": _api_scene(scene, provenance)})
+    connection.send_result(
+        msg["id"],
+        {
+            "scene": _api_scene(scene, provenance),
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 @websocket_api.require_admin
@@ -169,11 +216,21 @@ async def websocket_create_scene(
         }
     )
     try:
-        saved = await repository.async_save_scene(scene)
-        await _async_sync_entities(manager, repository, presets)
+        saved, synchronized = await _async_mutate_and_sync(
+            manager,
+            repository,
+            presets,
+            lambda: repository.async_save_scene(scene),
+        )
     except (ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
-    connection.send_result(msg["id"], {"scene": _api_scene(saved, "user")})
+    connection.send_result(
+        msg["id"],
+        {
+            "scene": _api_scene(saved, "user"),
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 @websocket_api.require_admin
@@ -204,13 +261,23 @@ async def websocket_update_scene(
     if provenance != "user":
         raise HomeAssistantError("Built-in scenes are read-only; duplicate one to edit it")
     try:
-        updated = await repository.async_update_scene(
-            msg["scene_id"], {**updates, "updated_at": _now()}
+        updated, synchronized = await _async_mutate_and_sync(
+            manager,
+            repository,
+            presets,
+            lambda: repository.async_update_scene(
+                msg["scene_id"], {**updates, "updated_at": _now()}
+            ),
         )
-        await _async_sync_entities(manager, repository, presets)
     except (KeyError, ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
-    connection.send_result(msg["id"], {"scene": _api_scene(updated, "user")})
+    connection.send_result(
+        msg["id"],
+        {
+            "scene": _api_scene(updated, "user"),
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 @websocket_api.require_admin
@@ -249,11 +316,21 @@ async def websocket_duplicate_scene(
         }
     )
     try:
-        duplicate = await repository.async_save_scene(validate_scene(payload))
-        await _async_sync_entities(manager, repository, presets)
+        duplicate, synchronized = await _async_mutate_and_sync(
+            manager,
+            repository,
+            presets,
+            lambda: repository.async_save_scene(validate_scene(payload)),
+        )
     except (ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
-    connection.send_result(msg["id"], {"scene": _api_scene(duplicate, "user")})
+    connection.send_result(
+        msg["id"],
+        {
+            "scene": _api_scene(duplicate, "user"),
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 @websocket_api.require_admin
@@ -278,11 +355,21 @@ async def websocket_delete_scene(
     if provenance != "user":
         raise HomeAssistantError("Built-in scenes are read-only")
     try:
-        await repository.async_delete_scene(msg["scene_id"])
-        await _async_sync_entities(manager, repository, presets)
+        _, synchronized = await _async_mutate_and_sync(
+            manager,
+            repository,
+            presets,
+            lambda: repository.async_delete_scene(msg["scene_id"]),
+        )
     except (KeyError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
-    connection.send_result(msg["id"], {"deleted": msg["scene_id"]})
+    connection.send_result(
+        msg["id"],
+        {
+            "deleted": msg["scene_id"],
+            "entity_sync": _entity_sync_status(synchronized),
+        },
+    )
 
 
 async def async_load_presets(hass: HomeAssistant) -> list[dict[str, Any]]:

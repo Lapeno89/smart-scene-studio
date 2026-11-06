@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from homeassistant.auth.models import Group
 from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.core import Context
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
 from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
 from custom_components.smart_scene_studio.repository import (
@@ -162,6 +163,73 @@ async def test_native_scene_activates_its_assigned_light_after_reload(
     assert payload["entity_id"] == "light.test_lamp"
     assert "rgb_color" in payload
     assert light_call.await_args.args[0].context.user_id == hass_admin_user.id
+
+
+async def test_scene_turn_on_uses_each_callers_real_entity_permissions(
+    hass, hass_admin_user
+) -> None:
+    """The actual scene service enforces per-user light policy and fresh contexts."""
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    scene_id = str(uuid4())
+    await repository.async_save_scene(
+        {
+            "id": scene_id,
+            "name": "Permission-bound scene",
+            "kind": "static",
+            "palette": ["#112233", "#445566"],
+            "targets": [{"entity_id": "light.allowed"}],
+        }
+    )
+    manager = hass.data[DOMAIN][entry.entry_id]["scene_manager"]
+    presets = hass.data[DOMAIN]["presets"]
+    await manager.async_sync((*presets, *repository.scenes))
+    scene_entity = manager.entities[scene_id]
+
+    allowed_user = await hass.auth.async_create_user("Scene control allowed")
+    allowed_user.groups = [
+        Group(
+            name="Scene light allowlist",
+            policy={
+                "entities": {
+                    "entity_ids": {"light.allowed": {"control": True}},
+                }
+            },
+        )
+    ]
+    denied_user = await hass.auth.async_create_user("Scene control denied")
+    denied_user.groups = []
+
+    assert not allowed_user.is_admin
+    assert not denied_user.is_admin
+    assert allowed_user.permissions.check_entity("light.allowed", "control")
+    assert not denied_user.permissions.check_entity("light.allowed", "control")
+
+    hass.states.async_set("light.allowed", "off", {"supported_color_modes": [ColorMode.RGB]})
+    light_call = AsyncMock()
+    hass.services.async_register("light", "turn_on", light_call)
+
+    await hass.services.async_call(
+        "scene",
+        "turn_on",
+        {"entity_id": scene_entity.entity_id},
+        blocking=True,
+        context=Context(user_id=allowed_user.id),
+    )
+    light_call.assert_awaited_once()
+    first_call = light_call.await_args.args[0]
+    assert first_call.context.user_id == allowed_user.id
+    assert first_call.data["entity_id"] == "light.allowed"
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            "scene",
+            "turn_on",
+            {"entity_id": scene_entity.entity_id},
+            blocking=True,
+            context=Context(user_id=denied_user.id),
+        )
+    light_call.assert_awaited_once()
 
 
 async def test_store_persists_scene_identity(hass) -> None:

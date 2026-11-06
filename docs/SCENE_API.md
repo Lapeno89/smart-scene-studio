@@ -14,6 +14,10 @@ selected `light.*` target and propagates the caller context to light services.
 All requests include the usual WebSocket `id` and a `type`. Responses use Home
 Assistant's standard `success`/`result` or `success`/`error` envelope. Scene
 objects are returned with `provenance` set to `builtin` or `user`.
+Mutating and read responses include `entity_sync.status`: `complete` means the native scene platform matches the saved scenes; `pending` means persistence succeeded but platform reconciliation did not. A pending
+response is still a successful save, not a rollback. The next authenticated
+list/get or mutation retries reconciliation from the latest Store snapshot
+and reports its status.
 
 ## Commands
 
@@ -41,8 +45,11 @@ with empty data.
 
 Native `scene.*` entities are added, updated and removed from the active entity
 platform after persisted CRUD changes without requiring an integration reload.
-When targets are removed and later restored, Home Assistant's entity registry
-retains the scene UUID and its entity ID. JSON import/export and Philips Hue API
-access are deferred. No Hue Bridge, network address, household entity ID,
-token, or production Home Assistant data is embedded in the integration or
-test fixtures.
+The Store mutation and its platform reconciliation are serialized so concurrent
+API requests cannot apply stale snapshots. Failed reconciliation leaves the
+saved definition intact, is reported as pending, and can be retried by a later
+API request. When targets are removed and later restored, Home Assistant's
+entity registry retains the scene UUID and its entity ID. JSON import/export
+and Philips Hue API access are deferred. No Hue Bridge, network address,
+household entity ID, token, or production Home Assistant data is embedded in the
+integration or test fixtures.
