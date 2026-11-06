@@ -82,6 +82,25 @@ class SceneRepository:
             self._scenes = candidate
             return deepcopy(scene)
 
+    async def async_save_scenes(self, values: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+        """Atomically add a batch of imported scenes without overwriting existing IDs."""
+        scenes = [validate_scene(value) for value in values]
+        scene_ids = [scene["id"] for scene in scenes]
+        if len(set(scene_ids)) != len(scene_ids):
+            raise ValueError("Imported scenes must have unique IDs")
+
+        async with self._lock:
+            self._ensure_writable()
+            candidate = dict(self._scenes)
+            for scene in scenes:
+                if scene["id"] in candidate:
+                    raise ValueError(f"Imported scene ID already exists: {scene['id']}")
+                candidate[scene["id"]] = scene
+            if scenes:
+                await self._async_save_candidate(candidate)
+                self._scenes = candidate
+            return tuple(deepcopy(scene) for scene in scenes)
+
     async def async_delete_scene(self, scene_id: str) -> None:
         """Delete one saved user scene."""
         async with self._lock:

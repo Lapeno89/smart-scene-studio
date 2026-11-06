@@ -29,6 +29,8 @@ and reports its status.
 | `smart_scene_studio/scene/update` | `scene_id`, `updates` | `{ "scene": {...} }`; only mutable fields are accepted |
 | `smart_scene_studio/scene/duplicate` | `scene_id`, optional `name` | `{ "scene": {...} }`; creates a new user UUID |
 | `smart_scene_studio/scene/delete` | `scene_id` | `{ "deleted": "<uuid>" }` |
+| `smart_scene_studio/scene/export` | optional `scene_ids` | `{ "bundle": {"format", "version", "scenes": [...] } }` |
+| `smart_scene_studio/scene/import` | `bundle`, `dry_run`, optional `target_mappings` | `{ "report": {...} }`; administrator-only |
 
 Create requires a non-empty `name` and a `palette` containing 2–8 `#RRGGBB`
 colors. Optional fields are `category`, `favorite`, `targets`,
@@ -49,7 +51,30 @@ The Store mutation and its platform reconciliation are serialized so concurrent
 API requests cannot apply stale snapshots. Failed reconciliation leaves the
 saved definition intact, is reported as pending, and can be retried by a later
 API request. When targets are removed and later restored, Home Assistant's
-entity registry retains the scene UUID and its entity ID. JSON import/export
-and Philips Hue API access are deferred. No Hue Bridge, network address,
-household entity ID, token, or production Home Assistant data is embedded in the
-integration or test fixtures.
+entity registry retains the scene UUID and its entity ID.
+
+## JSON portability
+
+Export is available to any authenticated user. Omitting `scene_ids` exports all
+built-in and user scenes; providing IDs selects only those scenes. Bundles use
+format `smart_scene_studio.scene_bundle`, version `1`, and contain only validated
+scene fields plus `provenance`. Unknown fields and exports larger than 1 MiB are
+rejected. Bundles contain no credentials or Hue account information.
+
+Import is administrator-only and requires an explicit `dry_run` boolean. A dry
+run validates the entire bundle and returns a plan without writing the Store or
+syncing native entities. Committing recomputes the plan while holding the same
+lock used for Store writes and entity synchronization, then stores new scenes as
+one batch. A failed Store write publishes none of the batch. Duplicate content
+is skipped, original UUIDs are preserved when free, and collisions receive a
+deterministic derived UUID. Repeating an unchanged import is idempotent.
+
+Imported light IDs are never matched by scene or light name. `target_mappings`
+must explicitly map source `light.*` IDs to destination `light.*` IDs. Assignments
+without a mapping remain as disabled targets and are listed in the report, so an
+unknown source light cannot be activated implicitly. Mappings for lights absent
+from the bundle and multiple targets mapped to the same light within one scene
+are rejected. Built-in provenance is retained for inspection, but imported
+scenes are user-owned. Philips Hue Bridge access remains outside this increment.
+No Hue Bridge, network address, household entity ID, token, or production Home
+Assistant data is embedded in the integration or test fixtures.

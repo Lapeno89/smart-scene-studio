@@ -17,6 +17,12 @@
 - Compatibility: PR-001 schema-v1 scenes load with the same UUID; unsupported future storage versions remain read-only and are not overwritten.
 - Authorization: scene data visibility is shared for authenticated users, writes require an admin, and the actual scene.turn_on service path uses each invocation's real limited-user policy for POLICY_CONTROL, blocks denied lights before any light call, forwards allowed calls with that invocation's context, and does not reuse a previous caller context.
 
+## JSON portability
+- Export: authenticated users can export all scenes or selected IDs; builtin/user provenance is retained and unknown/secret fields never appear.
+- Import validation: enforce version, schema, JSON compatibility, 1 MiB/scene limits, strict fields and explicit light ID mappings; disable unmapped targets and report them.
+- Import planning: dry-run does not mutate Store or native entities; preserve free UUIDs, deterministically derive colliding identities, skip duplicate content and remain idempotent.
+- Import persistence: admin-only commit recomputes under the scene manager lock, writes the full batch atomically, synchronizes native entities, and preserves Store state when batch persistence fails.
+
 ## Later photo/gallery tests
 - Images: JPEG/PNG, rotated EXIF, all-white, all-black, low-light, dominant colorful object, transparent PNG, oversized pixel count, corrupt/truncated data and path traversal attempts.
 - Palette count: 2–8, deterministic for fixed seed/settings, duplicates are handled, editable output survives reload.

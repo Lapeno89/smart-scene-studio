@@ -11,7 +11,7 @@ from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
+from custom_components.smart_scene_studio.const import DATA_REPOSITORY, DATA_SCENE_ENTITIES, DOMAIN
 from custom_components.smart_scene_studio.repository import SceneRepository
 from tests.test_integration import add_entry
 
@@ -437,6 +437,134 @@ async def test_scene_api_does_not_report_success_after_store_failure(
                 "name": "Not persisted",
                 "targets": [{"entity_id": "light.test_lamp"}],
             },
+        },
+    )
+
+    assert not response["success"]
+    assert repository.scenes == ()
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
+
+
+async def test_scene_json_export_and_import_preview_and_commit(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Export uses an allow-listed bundle; preview is read-only and commit is idempotent."""
+    entry = await add_entry(hass)
+    client = await hass_ws_client(hass)
+    created = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Portable",
+                "targets": [{"entity_id": "light.source"}],
+            },
+        },
+    )
+    scene_id = created["result"]["scene"]["id"]
+    exported = await request(client, {"type": f"{DOMAIN}/scene/export"})
+    assert exported["success"]
+    exported_bundle = exported["result"]["bundle"]
+    assert exported_bundle["format"] == f"{DOMAIN}.scene_bundle"
+    assert "provenance" in next(
+        item for item in exported_bundle["scenes"] if item["id"] == scene_id
+    )
+
+    source = next(item for item in exported_bundle["scenes"] if item["id"] == scene_id)
+    source_bundle = {
+        "format": exported_bundle["format"],
+        "version": exported_bundle["version"],
+        "scenes": [source],
+    }
+    import_message = {
+        "type": f"{DOMAIN}/scene/import",
+        "bundle": source_bundle,
+        "dry_run": True,
+        "target_mappings": {"light.source": "light.destination"},
+    }
+    preview = await request(client, import_message)
+    assert preview["success"]
+    assert preview["result"]["report"]["dry_run"] is True
+    assert preview["result"]["report"]["imported_count"] == 1
+    repository = hass.data[DOMAIN][entry.entry_id][DATA_REPOSITORY]
+    assert len(repository.scenes) == 1
+
+    imported = await request(client, {**import_message, "dry_run": False})
+    assert imported["success"]
+    report = imported["result"]["report"]
+    assert report["dry_run"] is False
+    assert report["imported_count"] == 1
+    assert report["entity_sync"]["status"] == "complete"
+    assert len(repository.scenes) == 2
+    assert next(scene for scene in repository.scenes if scene["id"] != scene_id)["targets"][0][
+        "entity_id"
+    ] == "light.destination"
+
+    repeated = await request(client, {**import_message, "dry_run": False})
+    assert repeated["success"]
+    assert repeated["result"]["report"]["imported_count"] == 0
+    assert repeated["result"]["report"]["skipped_count"] == 1
+    assert len(repository.scenes) == 2
+
+
+async def test_scene_json_import_requires_admin_but_export_is_available_to_users(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_admin_user,
+) -> None:
+    """Non-admin authenticated users may export, but import requires administration."""
+    await add_entry(hass)
+    hass_admin_user.groups = []
+    client = await hass_ws_client(hass)
+
+    exported = await request(client, {"type": f"{DOMAIN}/scene/export"})
+    assert exported["success"]
+    denied = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/import",
+            "bundle": {
+                "format": f"{DOMAIN}.scene_bundle",
+                "version": 1,
+                "scenes": [],
+            },
+            "dry_run": True,
+        },
+    )
+    assert not denied["success"]
+    assert denied["error"]["code"] == "unauthorized"
+
+
+async def test_scene_json_import_store_failure_is_atomic(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, monkeypatch
+) -> None:
+    """A failed batch Store write publishes no imported scenes or native entities."""
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    monkeypatch.setattr(
+        repository._store,
+        "async_save",
+        AsyncMock(side_effect=OSError("simulated Store failure")),
+    )
+    client = await hass_ws_client(hass)
+    response = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/import",
+            "dry_run": False,
+            "bundle": {
+                "format": f"{DOMAIN}.scene_bundle",
+                "version": 1,
+                "scenes": [{
+                    "id": "f3481166-f3fb-4a0b-87bc-12462c965e17",
+                    "name": "Atomic import",
+                    "kind": "static",
+                    "palette": ["#112233", "#445566"],
+                    "targets": [{"entity_id": "light.source"}],
+                }],
+            },
+            "target_mappings": {"light.source": "light.destination"},
         },
     )
 
