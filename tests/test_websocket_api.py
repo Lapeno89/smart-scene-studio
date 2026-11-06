@@ -2,7 +2,7 @@
 
 import asyncio
 from unittest.mock import AsyncMock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from homeassistant.components.light import ColorMode
@@ -571,6 +571,114 @@ async def test_scene_json_import_store_failure_is_atomic(
     assert not response["success"]
     assert repository.scenes == ()
     assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
+
+
+async def test_scene_json_import_preview_reports_capacity_and_commit_is_atomic(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Preview warns about the 500-scene limit and commit leaves the Store unchanged."""
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id][DATA_REPOSITORY]
+    existing = [
+        {
+            **CREATE_SCENE,
+            "id": str(uuid4()),
+            "name": f"Existing {index}",
+        }
+        for index in range(499)
+    ]
+    await repository.async_save_scenes(existing)
+    incoming = [
+        {
+            "id": str(uuid4()),
+            "name": f"Incoming {index}",
+            "kind": "static",
+            "palette": ["#112233", "#445566"],
+            "targets": [],
+        }
+        for index in range(2)
+    ]
+    command = {
+        "type": f"{DOMAIN}/scene/import",
+        "bundle": {
+            "format": f"{DOMAIN}.scene_bundle",
+            "version": 1,
+            "scenes": incoming,
+        },
+        "dry_run": True,
+    }
+    client = await hass_ws_client(hass)
+
+    preview = await request(client, command)
+
+    assert preview["success"]
+    report = preview["result"]["report"]
+    assert report["imported_count"] == 2
+    assert report["capacity"]["can_commit"] is False
+    assert report["capacity"]["current_scene_count"] == 499
+    assert report["capacity"]["proposed_scene_count"] == 501
+    assert any("maximum of 500" in error for error in report["capacity"]["errors"])
+    assert len(repository.scenes) == 499
+
+    committed = await request(client, {**command, "dry_run": False})
+
+    assert not committed["success"]
+    assert "500 user scenes" in committed["error"]["message"]
+    assert len(repository.scenes) == 499
+
+
+async def test_scene_json_import_preview_reports_storage_size_limit(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Preview checks serialized Store bytes, not just the scene-count limit."""
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id][DATA_REPOSITORY]
+
+    def large_scene(name: str, scene_id: str) -> dict:
+        targets = [
+            {"entity_id": f"light.{index:03d}" + "x" * 246}
+            for index in range(64)
+        ]
+        return {
+            "id": scene_id,
+            "name": name,
+            "kind": "static",
+            "palette": ["#112233", "#445566"],
+            "targets": targets,
+        }
+
+    await repository.async_save_scenes(
+        [large_scene(f"Stored {index}", str(uuid4())) for index in range(50)]
+    )
+    incoming = [
+        large_scene(f"Incoming large scene {index}", str(uuid4()))
+        for index in range(2)
+    ]
+    command = {
+        "type": f"{DOMAIN}/scene/import",
+        "bundle": {
+            "format": f"{DOMAIN}.scene_bundle",
+            "version": 1,
+            "scenes": incoming,
+        },
+        "dry_run": True,
+    }
+    client = await hass_ws_client(hass)
+
+    preview = await request(client, command)
+
+    assert preview["success"]
+    report = preview["result"]["report"]
+    assert report["imported_count"] == 2
+    assert report["capacity"]["can_commit"] is False
+    assert any("1 MiB" in error for error in report["capacity"]["errors"])
+    assert len(repository.scenes) == 50
+
+    committed = await request(client, {**command, "dry_run": False})
+
+    assert not committed["success"]
+    assert "1 MiB" in committed["error"]["message"]
+    assert len(repository.scenes) == 50
 
 
 async def test_anonymous_websocket_cannot_access_scene_api(

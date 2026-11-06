@@ -117,6 +117,7 @@ def plan_scene_import(
     timestamp = now or datetime.now(UTC).isoformat(timespec="seconds")
     normalized: list[tuple[dict[str, Any], str, set[str]]] = []
     referenced_targets: set[str] = set()
+    source_id_fingerprints: dict[str, str] = {}
 
     for source in source_scenes:
         if not isinstance(source, dict):
@@ -151,6 +152,12 @@ def plan_scene_import(
             destinations.add(mapped_id)
             remapped_targets.append({**target, "entity_id": mapped_id})
         candidate = validate_scene({**candidate, "targets": remapped_targets})
+        fingerprint = _fingerprint(candidate)
+        previous_fingerprint = source_id_fingerprints.setdefault(candidate["id"], fingerprint)
+        if previous_fingerprint != fingerprint:
+            raise ValueError(
+                f"Conflicting scene definitions share source UUID {candidate['id']}"
+            )
         normalized.append((candidate, provenance, unmapped_for_scene))
 
     unused_mappings = mappings.keys() - referenced_targets
@@ -239,15 +246,20 @@ def plan_scene_import(
     }
 
 
-def import_report(plan: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+def import_report(
+    plan: dict[str, Any], *, dry_run: bool, capacity: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Return an API-safe report without exposing internal mutable scene objects."""
-    return {
+    report = {
         "dry_run": dry_run,
         "scenes": deepcopy(plan["items"]),
         "imported_count": plan["imported_count"],
         "skipped_count": plan["skipped_count"],
         "unmapped_targets": list(plan["unmapped_targets"]),
     }
+    if capacity is not None:
+        report["capacity"] = deepcopy(capacity)
+    return report
 
 
 def _export_scene(scene: dict[str, Any]) -> dict[str, Any]:

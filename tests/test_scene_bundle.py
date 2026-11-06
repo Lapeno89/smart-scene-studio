@@ -96,6 +96,26 @@ def test_import_rejects_mapping_collisions_within_a_scene():
         )
 
 
+def test_identical_duplicate_source_uuids_import_once():
+    source = scene()
+    duplicated = {**source, "targets": [dict(target) for target in source["targets"]]}
+
+    plan = plan_scene_import(bundle(source, duplicated), {}, (), [])
+
+    assert plan["imported_count"] == 1
+    assert plan["skipped_count"] == 1
+    assert plan["items"][0]["scene_id"] == plan["items"][1]["scene_id"]
+    assert plan["items"][1]["action"] == "skip_duplicate"
+
+
+def test_conflicting_definitions_with_duplicate_source_uuid_are_rejected():
+    source = scene(name="First")
+    conflict = {**source, "name": "Second"}
+
+    with pytest.raises(ValueError, match="Conflicting scene definitions share source UUID"):
+        plan_scene_import(bundle(source, conflict), {}, (), [])
+
+
 @pytest.mark.parametrize(
     "invalid_bundle, mappings, message",
     [

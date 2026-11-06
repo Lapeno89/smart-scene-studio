@@ -20,8 +20,8 @@
 ## JSON portability
 - Export: authenticated users can export all scenes or selected IDs; builtin/user provenance is retained and unknown/secret fields never appear.
 - Import validation: enforce version, schema, JSON compatibility, 1 MiB/scene limits, strict fields and explicit light ID mappings; disable unmapped targets and report them.
-- Import planning: dry-run does not mutate Store or native entities; preserve free UUIDs, deterministically derive colliding identities, skip duplicate content and remain idempotent.
-- Import persistence: admin-only commit recomputes under the scene manager lock, writes the full batch atomically, synchronizes native entities, and preserves Store state when batch persistence fails.
+- Import planning: reject conflicting duplicate source UUIDs, import identical duplicate source UUIDs only once, dry-run does not mutate Store/entities, preserve free UUIDs, deterministically derive colliding identities and skip duplicate content.
+- Import capacity/persistence: dry-run reports predicted 500-scene and 1 MiB Store-limit failures; commit rechecks under lock, writes the batch atomically, synchronizes native entities and preserves Store state on failure.
 
 ## Later photo/gallery tests
 - Images: JPEG/PNG, rotated EXIF, all-white, all-black, low-light, dominant colorful object, transparent PNG, oversized pixel count, corrupt/truncated data and path traversal attempts.

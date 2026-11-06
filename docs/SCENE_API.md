@@ -63,11 +63,17 @@ rejected. Bundles contain no credentials or Hue account information.
 
 Import is administrator-only and requires an explicit `dry_run` boolean. A dry
 run validates the entire bundle and returns a plan without writing the Store or
-syncing native entities. Committing recomputes the plan while holding the same
-lock used for Store writes and entity synchronization, then stores new scenes as
-one batch. A failed Store write publishes none of the batch. Duplicate content
-is skipped, original UUIDs are preserved when free, and collisions receive a
-deterministic derived UUID. Repeating an unchanged import is idempotent.
+syncing native entities. It also checks the current 500-scene and 1 MiB Store
+limits and reports `capacity.can_commit` plus any capacity errors. The preview
+is serialized with scene mutations; a later commit still rechecks the limits
+atomically because storage may change after the preview response. Committing
+recomputes the plan while holding the same lock used for Store writes and entity
+synchronization, then stores new scenes as one batch. A failed Store write
+publishes none of the batch. Identical repeated source UUID definitions are
+treated as duplicates and imported once; conflicting definitions with the same
+source UUID are rejected. Other duplicate content is skipped, original UUIDs are
+preserved when free, and collisions receive a deterministic derived UUID.
+Repeating an unchanged import is idempotent.
 
 Imported light IDs are never matched by scene or light name. `target_mappings`
 must explicitly map source `light.*` IDs to destination `light.*` IDs. Assignments

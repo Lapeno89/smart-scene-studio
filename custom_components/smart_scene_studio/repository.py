@@ -101,6 +101,32 @@ class SceneRepository:
                 self._scenes = candidate
             return tuple(deepcopy(scene) for scene in scenes)
 
+    async def async_check_batch_capacity(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+        """Predict whether an atomic batch can fit without writing to the Store."""
+        scenes = [validate_scene(value) for value in values]
+        scene_ids = [scene["id"] for scene in scenes]
+        errors = []
+        if len(set(scene_ids)) != len(scene_ids):
+            errors.append("Imported scenes must have unique IDs")
+
+        async with self._lock:
+            candidate = dict(self._scenes)
+            if self._read_only:
+                errors.append("Future-version storage is read-only")
+            for scene in scenes:
+                if scene["id"] in candidate:
+                    errors.append(f"Imported scene ID already exists: {scene['id']}")
+                else:
+                    candidate[scene["id"]] = scene
+            errors.extend(self._candidate_capacity_errors(candidate))
+            return {
+                "can_commit": not errors,
+                "current_scene_count": len(self._scenes),
+                "proposed_scene_count": len(candidate),
+                "max_scenes": 500,
+                "errors": list(dict.fromkeys(errors)),
+            }
+
     async def async_delete_scene(self, scene_id: str) -> None:
         """Delete one saved user scene."""
         async with self._lock:
@@ -132,9 +158,19 @@ class SceneRepository:
 
     async def _async_save_candidate(self, candidate: dict[str, dict[str, Any]]) -> None:
         """Persist a complete candidate before publishing it in memory."""
+        errors = self._candidate_capacity_errors(candidate)
+        if errors:
+            raise ValueError(errors[0])
+        data = {"schema_version": STORAGE_VERSION, "scenes": list(candidate.values())}
+        await self._store.async_save(data)
+
+    @staticmethod
+    def _candidate_capacity_errors(candidate: dict[str, dict[str, Any]]) -> list[str]:
+        """Apply the same count and serialized-size limits used by Store writes."""
+        errors = []
         if len(candidate) > 500:
-            raise ValueError("A maximum of 500 user scenes can be stored")
+            errors.append("A maximum of 500 user scenes can be stored")
         data = {"schema_version": STORAGE_VERSION, "scenes": list(candidate.values())}
         if len(json.dumps(data, separators=(",", ":"))) > 1_048_576:
-            raise ValueError("Scene storage exceeds the 1 MiB limit")
-        await self._store.async_save(data)
+            errors.append("Scene storage exceeds the 1 MiB limit")
+        return errors

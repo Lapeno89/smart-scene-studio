@@ -438,11 +438,19 @@ async def websocket_import_scenes(
     repository, presets, manager = _get_runtime(hass)
     mappings = msg.get("target_mappings", {})
     if msg["dry_run"]:
-        try:
+        async def preview() -> tuple[dict[str, Any], dict[str, Any]]:
             plan = plan_scene_import(msg["bundle"], mappings, repository.scenes, list(presets))
+            capacity = await repository.async_check_batch_capacity(plan["scenes"])
+            return plan, capacity
+
+        try:
+            plan, capacity = await manager.async_run_serialized(preview)
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
-        connection.send_result(msg["id"], {"report": import_report(plan, dry_run=True)})
+        connection.send_result(
+            msg["id"],
+            {"report": import_report(plan, dry_run=True, capacity=capacity)},
+        )
         return
 
     async def mutation() -> dict[str, Any]:
