@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -13,6 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    DATA_PRESETS,
     DATA_REPOSITORY,
     DATA_SCENE_ENTITIES,
     DOMAIN,
@@ -20,17 +19,18 @@ from .const import (
     SERVICE_APPLY_SCENE,
 )
 from .light_control import async_apply_scene
-from .models import validate_scene
 from .repository import SceneRepository, UnsupportedStorageVersion
+from .websocket_api import async_load_presets
+from .websocket_api import async_setup as async_setup_websocket_api
 
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Register validated scene activation service."""
-    presets_path = Path(__file__).with_name("presets.json")
-    preset_text = await hass.async_add_executor_job(presets_path.read_text, "utf-8")
-    presets = [validate_scene(item) for item in json.loads(preset_text)]
+    presets = await async_load_presets(hass)
+    hass.data.setdefault(DOMAIN, {})[DATA_PRESETS] = presets
+    async_setup_websocket_api(hass)
 
     async def handle_apply_scene(call: ServiceCall) -> dict[str, Any] | None:
         """Apply an immutable builtin or saved scene to explicitly selected lights."""

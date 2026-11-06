@@ -8,12 +8,39 @@ from uuid import UUID
 
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _COLOR_MODES = {"xy", "rgb", "hs", "rgbw", "rgbww", "color_temp_kelvin", "brightness", "none"}
+_TARGET_FIELDS = {
+    "entity_id",
+    "enabled",
+    "color_index",
+    "state",
+    "color_mode",
+    "color",
+    "brightness_pct",
+    "transition",
+    "color_temp_kelvin",
+}
+_SCENE_FIELDS = {
+    "id",
+    "name",
+    "kind",
+    "category",
+    "favorite",
+    "palette",
+    "targets",
+    "brightness_pct",
+    "transition",
+    "created_at",
+    "updated_at",
+}
 
 
 def validate_scene(value: Any) -> dict[str, Any]:
-    """Validate and normalize a v1 static scene without dropping unknown data."""
+    """Validate and normalize a v1 static scene, rejecting unknown fields."""
     if not isinstance(value, dict):
         raise ValueError("Scene must be an object")
+    unknown_fields = value.keys() - _SCENE_FIELDS
+    if unknown_fields:
+        raise ValueError(f"Unsupported scene fields: {', '.join(sorted(unknown_fields))}")
     try:
         scene_id = str(UUID(value["id"]))
     except (KeyError, TypeError, ValueError) as err:
@@ -42,15 +69,17 @@ def validate_scene(value: Any) -> dict[str, Any]:
         entity_id = target.get("entity_id")
         if (
             not isinstance(entity_id, str)
-            or not entity_id.startswith("light.")
+            or not re.fullmatch(r"light\.[a-z0-9_]+", entity_id)
             or len(entity_id) > 255
         ):
             raise ValueError("Target entity_id must be a light entity")
+        if extra_fields := target.keys() - _TARGET_FIELDS:
+            raise ValueError(f"Unsupported target fields: {', '.join(sorted(extra_fields))}")
         if entity_id in seen:
             continue
         seen.add(entity_id)
         mode = target.get("color_mode")
-        if mode is not None and mode not in _COLOR_MODES:
+        if mode is not None and (not isinstance(mode, str) or mode not in _COLOR_MODES):
             raise ValueError("Unsupported color mode")
         color_index = target.get("color_index", len(checked_targets) % len(palette))
         if (
