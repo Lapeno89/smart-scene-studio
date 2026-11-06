@@ -583,6 +583,7 @@ async def test_scene_json_import_preview_reports_capacity_and_commit_is_atomic(
         {
             **CREATE_SCENE,
             "id": str(uuid4()),
+            "kind": "static",
             "name": f"Existing {index}",
         }
         for index in range(499)
