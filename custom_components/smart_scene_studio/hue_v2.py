@@ -277,6 +277,21 @@ def hue_resource_to_dict(value: Any) -> Any:
     return _plain(value)
 
 
+def hue_import_report(scenes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize conversion warnings for exactly the scenes in the preview."""
+    keys = ("unmapped_light_ids", "missing_light_ids", "unsupported_features")
+    return {
+        key: sorted(
+            {
+                item
+                for scene in scenes
+                for item in scene["source"].get(key, [])
+            }
+        )
+        for key in keys
+    }
+
+
 def remap_hue_scene_targets(
     scene: dict[str, Any],
     target_mappings: Any,

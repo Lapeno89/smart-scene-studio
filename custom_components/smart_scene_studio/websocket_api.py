@@ -19,6 +19,7 @@ from .const import DATA_PRESETS, DATA_REPOSITORY, DATA_SCENE_MANAGER, DOMAIN
 from .hue_v2 import (
     MAX_HUE_RESOURCE_BYTES,
     convert_hue_v2_resources,
+    hue_import_report,
     hue_resource_to_dict,
     plan_hue_scene_import,
     remap_hue_scene_targets,
@@ -629,6 +630,7 @@ async def websocket_import_hue_scenes(
             if missing := selected - known:
                 raise ValueError(f"Unknown Hue scene IDs: {', '.join(sorted(missing))}")
             converted = [scene for scene in converted if scene["source"]["id"] in selected]
+        conversion_report = hue_import_report(converted)
 
         async def build_plan() -> tuple[dict[str, Any], dict[str, Any]]:
             plan = plan_hue_scene_import(converted, repository.scenes, list(presets))
