@@ -18,6 +18,12 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DATA_PRESETS, DATA_REPOSITORY, DATA_SCENE_MANAGER, DOMAIN
 from .models import validate_scene
 from .repository import SceneRepository, UnsupportedStorageVersion
+from .scene_bundle import (
+    MAX_BUNDLE_BYTES,
+    create_export_bundle,
+    import_report,
+    plan_scene_import,
+)
 
 _COMMAND_PREFIX = f"{DOMAIN}/scene"
 _CREATE_FIELDS = {
@@ -31,6 +37,7 @@ _CREATE_FIELDS = {
 }
 _UPDATE_FIELDS = _CREATE_FIELDS
 _MAX_COMMAND_BYTES = 64 * 1024
+_IMPORT_FIELDS = {"bundle", "dry_run", "target_mappings"}
 
 
 def async_setup(hass: HomeAssistant) -> None:
@@ -41,6 +48,8 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_update_scene)
     websocket_api.async_register_command(hass, websocket_duplicate_scene)
     websocket_api.async_register_command(hass, websocket_delete_scene)
+    websocket_api.async_register_command(hass, websocket_export_scenes)
+    websocket_api.async_register_command(hass, websocket_import_scenes)
 
 
 def _get_runtime(
@@ -370,6 +379,95 @@ async def websocket_delete_scene(
             "entity_sync": _entity_sync_status(synchronized),
         },
     )
+
+
+@websocket_api.ws_require_user()
+@websocket_api.async_response
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): f"{_COMMAND_PREFIX}/export",
+        probatio.Optional("scene_ids"): list,
+    }
+)
+async def websocket_export_scenes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Export selected or all scenes as a versioned, secret-free JSON bundle."""
+    _reject_extra_fields(msg, {"scene_ids"})
+    scene_ids = msg.get("scene_ids")
+    if scene_ids is not None and (
+        not isinstance(scene_ids, list) or any(not isinstance(item, str) for item in scene_ids)
+    ):
+        raise HomeAssistantError("scene_ids must be a list of strings")
+    repository, presets, _ = _get_runtime(hass)
+    try:
+        bundle = create_export_bundle(presets, repository.scenes, scene_ids)
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
+    if len(json.dumps(bundle, separators=(",", ":")).encode("utf-8")) > MAX_BUNDLE_BYTES:
+        raise HomeAssistantError("Scene bundle exceeds the 1 MiB limit")
+    connection.send_result(msg["id"], {"bundle": bundle})
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): f"{_COMMAND_PREFIX}/import",
+        probatio.Required("bundle"): dict,
+        probatio.Required("dry_run"): bool,
+        probatio.Optional("target_mappings"): dict,
+    }
+)
+async def websocket_import_scenes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Preview or atomically import a validated, portable scene bundle."""
+    _reject_extra_fields(msg, _IMPORT_FIELDS)
+    try:
+        encoded = json.dumps(msg["bundle"], separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError) as err:
+        raise HomeAssistantError("Scene bundle must contain JSON-compatible values") from err
+    if len(encoded.encode("utf-8")) > MAX_BUNDLE_BYTES:
+        raise HomeAssistantError("Scene bundle exceeds the 1 MiB limit")
+
+    repository, presets, manager = _get_runtime(hass)
+    mappings = msg.get("target_mappings", {})
+    if msg["dry_run"]:
+        async def preview() -> tuple[dict[str, Any], dict[str, Any]]:
+            plan = plan_scene_import(msg["bundle"], mappings, repository.scenes, list(presets))
+            capacity = await repository.async_check_batch_capacity(plan["scenes"])
+            return plan, capacity
+
+        try:
+            plan, capacity = await manager.async_run_serialized(preview)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+        connection.send_result(
+            msg["id"],
+            {"report": import_report(plan, dry_run=True, capacity=capacity)},
+        )
+        return
+
+    async def mutation() -> dict[str, Any]:
+        plan = plan_scene_import(msg["bundle"], mappings, repository.scenes, list(presets))
+        # The manager lock serializes planning, batch persistence and entity reconciliation.
+        await repository.async_save_scenes(plan["scenes"])
+        return plan
+
+    try:
+        result, synchronized = await _async_mutate_and_sync(
+            manager, repository, presets, mutation
+        )
+    except (OSError, ValueError, UnsupportedStorageVersion) as err:
+        raise HomeAssistantError(str(err)) from err
+    report = import_report(result, dry_run=False)
+    report["entity_sync"] = _entity_sync_status(synchronized)
+    connection.send_result(msg["id"], {"report": report})
 
 
 async def async_load_presets(hass: HomeAssistant) -> list[dict[str, Any]]:

@@ -90,6 +90,13 @@ class SceneEntityManager:
             self._sync_pending = False
             return result, True
 
+    async def async_run_serialized(
+        self, operation: Callable[[], Awaitable[_MutationResult]]
+    ) -> _MutationResult:
+        """Run a read-only scene operation against a stable mutation snapshot."""
+        async with self._lock:
+            return await operation()
+
     async def async_reconcile_if_pending(self, definitions: SceneDefinitions) -> bool:
         """Retry a previously failed reconciliation using the latest saved snapshot."""
         if not self._sync_pending:
