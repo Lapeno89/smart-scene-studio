@@ -24,7 +24,12 @@ async def async_setup_entry(
     path = Path(__file__).with_name("presets.json")
     preset_text = await hass.async_add_executor_job(path.read_text, "utf-8")
     presets = [validate_scene(item) for item in json.loads(preset_text)]
-    entities = [SmartScene(item) for item in (*presets, *repository.scenes)]
+    scene_definitions = (*presets, *repository.scenes)
+    entities = [
+        SmartScene(scene)
+        for scene in scene_definitions
+        if any(target["enabled"] for target in scene["targets"])
+    ]
     hass.data[entry.domain][DATA_SCENE_ENTITIES] = {entity.unique_id: entity for entity in entities}
     async_add_entities(entities)
 

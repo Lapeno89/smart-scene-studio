@@ -1,9 +1,9 @@
 # Test and acceptance plan
 
 ## PR-001 integration tests
-- Setup/teardown: integration config flow, loaded `scene.*` entities, integration unload leaves no services/task leaks.
+- Setup/teardown: integration config flow, targetless built-ins and saved scenes are not exposed as native entities, assigned scenes load as `scene.*`, and unload leaves no services/task leaks.
 - Storage: fresh file, valid saved scene, reload preserving UUID and `unique_id`; malformed data and unsupported newer storage version cannot be silently destroyed; migration fixture exercise.
-- Scene activation: compatible RGB/XY/HS/RGBW/RGBWW lights receive supported payloads with correct brightness and transition representation.
+- Scene activation: `scene.turn_on` on a registered assigned scene invokes `light.turn_on` for its configured light; preset service activation requires explicit targets. Compatible RGB/XY/HS/RGBW/RGBWW lights receive supported payloads with correct brightness and transition representation.
 - Capability fallback: white-only lights get `color_temp_kelvin` only if explicitly selected and supported; brightness-only lights get no color attribute; unavailable and missing lights get no commands.
 - Target intent: disabled assignments are skipped, off assignments call `light.turn_off`, and explicit RGB colors override palette selection.
 - Error semantics: one light raises, another succeeds; action reports partial failure without corrupting persistent scenes.

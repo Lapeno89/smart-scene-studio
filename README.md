@@ -5,14 +5,14 @@ Smart Scene Studio is an original Home Assistant custom integration for saved st
 ## PR-001 features
 
 - Three built-in palettes: Amber Evening, Ocean Calm, and Rose Dawn.
-- Native `scene.*` entities for built-in and saved scenes.
+- Native `scene.*` entities for scenes with at least one enabled light target.
 - Versioned Home Assistant `Store` persistence for user scenes.
 - The `smart_scene_studio.apply_scene` action applies a palette to explicitly selected light entities.
 - Capability checks choose a supported XY, RGB, HS, RGBW, RGBWW, or brightness mode at activation time. White color temperature is sent only when explicitly selected with a valid Kelvin value and supported range. Unsupported, missing, and unavailable lights are skipped.
 - Brightness is included only for dimmable lights. Transition is included only when the entity advertises transition support.
 - Saved target assignments can be disabled, set to turn off, or given an explicit RGB color without changing scene identity.
 
-User scenes are currently written through the repository layer; a user-facing editor and CRUD action are not part of PR-001. Changes made through the internal repository are exposed as scene entities after reloading the integration. The built-in scene entities have no saved target assignments; apply a built-in palette to chosen lights with the `apply_scene` action.
+User scenes are currently written through the repository layer; a user-facing editor and CRUD action are not part of PR-001. Changes made through the internal repository are exposed as scene entities after reloading the integration, but only when at least one enabled light target is assigned. Targetless built-in presets remain available through the `apply_scene` action with explicit light entity IDs; they are not exposed as native scenes that would do nothing when activated.
 
 ## Installation
 

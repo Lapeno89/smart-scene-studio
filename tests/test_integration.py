@@ -6,10 +6,9 @@ from uuid import uuid4
 import pytest
 from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
-from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.smart_scene_studio.const import DOMAIN
+from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
 from custom_components.smart_scene_studio.repository import (
     SceneRepository,
     UnsupportedStorageVersion,
@@ -31,12 +30,12 @@ async def add_entry(hass):
 
 async def test_config_flow_and_clean_unload(hass) -> None:
     entry = await add_entry(hass)
-    assert len(hass.data[DOMAIN]["scene_entities"]) == 3
-    assert hass.states.get("scene.amber_evening") is not None
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
+    for object_id in ("amber_evening", "ocean_calm", "rose_dawn"):
+        assert hass.states.get(f"scene.{object_id}") is None
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("scene.amber_evening").state == STATE_UNAVAILABLE
-    assert "scene_entities" not in hass.data[DOMAIN]
+    assert DATA_SCENE_ENTITIES not in hass.data[DOMAIN]
 
 
 async def test_service_skips_unsupported_and_unavailable(hass) -> None:
@@ -102,7 +101,7 @@ async def test_one_light_failure_is_partial(hass) -> None:
     assert result["applied"] == ["light.good"]
 
 
-async def test_saved_scene_entity_appears_after_reload(hass) -> None:
+async def test_targetless_saved_scene_stays_unregistered_after_reload(hass) -> None:
     entry = await add_entry(hass)
     repository = hass.data[DOMAIN][entry.entry_id]["repository"]
     scene_id = str(uuid4())
@@ -118,11 +117,43 @@ async def test_saved_scene_entity_appears_after_reload(hass) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    entity = hass.states.get("scene.persisted")
-    assert entity is not None
-    scene_entities = hass.data[DOMAIN]["scene_entities"]
-    assert scene_entities[scene_id].unique_id == scene_id
+    assert hass.states.get("scene.persisted") is None
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
     assert hass.data[DOMAIN][entry.entry_id]["repository"].scenes[0]["id"] == scene_id
+
+
+async def test_native_scene_activates_its_assigned_light_after_reload(hass) -> None:
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    scene_id = str(uuid4())
+    await repository.async_save_scene(
+        {
+            "id": scene_id,
+            "name": "Targeted Scene",
+            "kind": "static",
+            "palette": ["#112233", "#445566"],
+            "targets": [{"entity_id": "light.test_lamp"}],
+        }
+    )
+    hass.states.async_set("light.test_lamp", "off", {"supported_color_modes": [ColorMode.RGB]})
+    light_call = AsyncMock()
+    hass.services.async_register("light", "turn_on", light_call)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    scene_entity = hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id]
+    assert scene_entity.unique_id == scene_id
+    assert hass.states.get(scene_entity.entity_id) is not None
+    await hass.services.async_call(
+        "scene", "turn_on", {"entity_id": scene_entity.entity_id}, blocking=True
+    )
+
+    light_call.assert_awaited_once()
+    payload = light_call.await_args.args[0].data
+    assert payload["entity_id"] == "light.test_lamp"
+    assert "rgb_color" in payload
 
 
 async def test_store_persists_scene_identity(hass) -> None:
