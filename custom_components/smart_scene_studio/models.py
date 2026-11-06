@@ -32,6 +32,7 @@ _SCENE_FIELDS = {
     "targets",
     "brightness_pct",
     "transition",
+    "white_temperature_kelvin",
     "created_at",
     "updated_at",
     "source",
@@ -156,6 +157,7 @@ def validate_scene(value: Any) -> dict[str, Any]:
         raise ValueError("favorite must be boolean")
     brightness_pct = value.get("brightness_pct", 80)
     transition = value.get("transition", 0)
+    white_temperature_kelvin = value.get("white_temperature_kelvin")
     if (
         not isinstance(brightness_pct, (int, float))
         or isinstance(brightness_pct, bool)
@@ -168,6 +170,12 @@ def validate_scene(value: Any) -> dict[str, Any]:
         or not 0 <= transition <= 300
     ):
         raise ValueError("Invalid scene transition")
+    if white_temperature_kelvin is not None and (
+        not isinstance(white_temperature_kelvin, int)
+        or isinstance(white_temperature_kelvin, bool)
+        or not 1000 <= white_temperature_kelvin <= 10000
+    ):
+        raise ValueError("Invalid scene white_temperature_kelvin")
     source = value.get("source")
     if source is not None:
         source = _validate_scene_source(source)
@@ -181,6 +189,7 @@ def validate_scene(value: Any) -> dict[str, Any]:
         "targets": checked_targets,
         "brightness_pct": brightness_pct,
         "transition": transition,
+        "white_temperature_kelvin": white_temperature_kelvin,
         "created_at": value.get("created_at"),
         "updated_at": value.get("updated_at"),
         "source": source,

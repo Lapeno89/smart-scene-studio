@@ -57,3 +57,10 @@ def test_normalizes_explicit_target_color_and_off_state() -> None:
     target = validate_scene(value)["targets"][0]
     assert target["color"] == "#A1B2C3"
     assert target["state"] == "off"
+
+
+def test_validates_scene_white_temperature_template():
+    value = validate_scene({**scene(), "white_temperature_kelvin": 2700})
+    assert value["white_temperature_kelvin"] == 2700
+    with pytest.raises(ValueError, match="white_temperature_kelvin"):
+        validate_scene({**scene(), "white_temperature_kelvin": True})

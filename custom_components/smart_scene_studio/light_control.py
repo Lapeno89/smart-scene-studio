@@ -84,6 +84,9 @@ async def async_apply_scene(
                 results["applied"].append(entity_id)
             continue
         mode = assignment.get("color_mode")
+        scene_white_temperature = scene.get("white_temperature_kelvin")
+        if mode is None and scene_white_temperature is not None:
+            mode = "color_temp_kelvin"
         payload: dict[str, Any] = {}
         palette = scene["palette"]
         color_index = assignment.get("color_index", index)
@@ -129,7 +132,7 @@ async def async_apply_scene(
             payload[ATTR_RGBWW_COLOR] = color_rgb_to_rgbww(*rgb, min_kelvin, max_kelvin)
         elif mode == "color_temp_kelvin" and ColorMode.COLOR_TEMP in modes:
             # This first slice does not guess a white point from a colorful palette.
-            kelvin = assignment.get("color_temp_kelvin")
+            kelvin = assignment.get("color_temp_kelvin", scene_white_temperature)
             kelvin_range = attrs.get("min_color_temp_kelvin"), attrs.get("max_color_temp_kelvin")
             if not isinstance(kelvin, int) or not all(isinstance(v, int) for v in kelvin_range):
                 results["skipped"].append(entity_id)

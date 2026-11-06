@@ -33,7 +33,19 @@ async def add_entry(hass):
 async def test_config_flow_and_clean_unload(hass) -> None:
     entry = await add_entry(hass)
     assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
-    for object_id in ("amber_evening", "ocean_calm", "rose_dawn"):
+    for object_id in (
+        "amber_evening",
+        "ocean_calm",
+        "rose_dawn",
+        "quiet_rain",
+        "focus_grove",
+        "hearth_glow",
+        "tidal_blue",
+        "moss_canopy",
+        "last_light",
+        "candle_white",
+        "clear_white",
+    ):
         assert hass.states.get(f"scene.{object_id}") is None
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -53,7 +65,12 @@ async def test_service_skips_unsupported_and_unavailable(hass) -> None:
     hass.states.async_set(
         "light.white",
         "off",
-        {"supported_color_modes": [ColorMode.COLOR_TEMP], "supported_features": 0},
+        {
+            "supported_color_modes": [ColorMode.COLOR_TEMP],
+            "supported_features": 0,
+            "min_color_temp_kelvin": 2000,
+            "max_color_temp_kelvin": 6500,
+        },
     )
     hass.states.async_set(
         "light.offline", "unavailable", {"supported_color_modes": [ColorMode.RGB]}
@@ -77,6 +94,46 @@ async def test_service_skips_unsupported_and_unavailable(hass) -> None:
     assert all("color_temp_kelvin" not in payload for payload in payloads)
     assert all("transition" not in payload for payload in payloads)
     assert result["skipped"] == ["light.white", "light.offline", "light.missing"]
+
+
+async def test_white_builtin_uses_only_supported_color_temperature(hass) -> None:
+    await add_entry(hass)
+    light_calls = AsyncMock()
+    hass.services.async_register("light", "turn_on", light_calls)
+    hass.states.async_set(
+        "light.white",
+        "off",
+        {
+            "supported_color_modes": [ColorMode.COLOR_TEMP],
+            "supported_features": 0,
+            "min_color_temp_kelvin": 2000,
+            "max_color_temp_kelvin": 6500,
+        },
+    )
+    hass.states.async_set(
+        "light.color_only",
+        "off",
+        {"supported_color_modes": [ColorMode.XY], "supported_features": 0},
+    )
+
+    result = await hass.services.async_call(
+        DOMAIN,
+        "apply_scene",
+        {
+            "scene_id": "b88ea8a1-0db4-4df5-9e91-4d93a3d30010",
+            "entity_id": ["light.white", "light.color_only"],
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    assert result["applied"] == ["light.white"]
+    assert result["skipped"] == ["light.color_only"]
+    assert light_calls.await_count == 1
+    payload = light_calls.await_args.args[0].data
+    assert payload["color_temp_kelvin"] == 2700
+    assert payload["entity_id"] == "light.white"
+    assert not {"xy_color", "rgb_color"} & payload.keys()
 
 
 async def test_one_light_failure_is_partial(hass) -> None:

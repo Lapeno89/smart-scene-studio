@@ -43,6 +43,7 @@ _CREATE_FIELDS = {
     "targets",
     "brightness_pct",
     "transition",
+    "white_temperature_kelvin",
 }
 _UPDATE_FIELDS = _CREATE_FIELDS
 _MAX_COMMAND_BYTES = 64 * 1024
