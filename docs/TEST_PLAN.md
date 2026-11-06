@@ -29,6 +29,7 @@
 - UI: light/dark themes, responsive touch targets, no unintended API traffic in preview, authenticated upload and CRUD.
 - Zigbee: verify command budget, rate limiter, offline recovery, cancellation, mode switch white/colored light and physical-device color transition. Simulator success is not hardware proof.
 - Hue: dry run, read-only source, mapping ambiguous IDs and reporting missing gradients/dynamic features.
+- Hue API V2 import: conversion from synthetic scene/light/room JSON, exact XY and Mirek conversion, bridge-scoped idempotency, explicit and deferred remapping, source/target capability errors, and authenticated list/preview/commit commands with a mocked Hue runtime. No test pairs with or contacts a physical Bridge.
 
 ## Required evidence per increment
 Record exact test command, environment versions, exit status, number of tests passing/failing and known untested hardware assumptions. Do not claim compatibility with untested devices.

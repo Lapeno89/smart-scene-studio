@@ -13,7 +13,8 @@ selected `light.*` target and propagates the caller context to light services.
 
 All requests include the usual WebSocket `id` and a `type`. Responses use Home
 Assistant's standard `success`/`result` or `success`/`error` envelope. Scene
-objects are returned with `provenance` set to `builtin` or `user`.
+objects are returned with `provenance` set to `builtin`, `user`, or
+`hue_import`.
 Mutating and read responses include `entity_sync.status`: `complete` means the native scene platform matches the saved scenes; `pending` means persistence succeeded but platform reconciliation did not. A pending
 response is still a successful save, not a rollback. The next authenticated
 list/get or mutation retries reconciliation from the latest Store snapshot
@@ -31,6 +32,9 @@ and reports its status.
 | `smart_scene_studio/scene/delete` | `scene_id` | `{ "deleted": "<uuid>" }` |
 | `smart_scene_studio/scene/export` | optional `scene_ids` | `{ "bundle": {"format", "version", "scenes": [...] } }` |
 | `smart_scene_studio/scene/import` | `bundle`, `dry_run`, optional `target_mappings` | `{ "report": {...} }`; administrator-only |
+| `smart_scene_studio/hue/list` | `bridge_id` | Cached Hue V2 scene and light choices plus HA `light.*` mapping targets |
+| `smart_scene_studio/hue/import` | `bridge_id`, `dry_run`, optional `scene_ids`, `target_mappings` | Read-only Hue V2 fetch, preview capacity report or local atomic scene import; administrator-only |
+| `smart_scene_studio/hue/remap` | `scene_id`, `target_mappings` | Explicitly map preserved Hue light actions onto HA `light.*` targets; administrator-only |
 
 Create requires a non-empty `name` and a `palette` containing 2–8 `#RRGGBB`
 colors. Optional fields are `category`, `favorite`, `targets`,
@@ -84,3 +88,41 @@ are rejected. Built-in provenance is retained for inspection, but imported
 scenes are user-owned. Philips Hue Bridge access remains outside this increment.
 No Hue Bridge, network address, household entity ID, token, or production Home
 Assistant data is embedded in the integration or test fixtures.
+
+## Optional Hue API V2 import
+
+Hue import is optional. Smart Scene Studio works without Philips Hue installed.
+To import, first configure the official Home Assistant **Philips Hue** integration
+for the local Bridge V2. Smart Scene Studio reads the already loaded Hue runtime;
+it does not ask for, copy, or return the Hue application key and does not use a
+cloud service. A Hue V1 entry is not accepted. Home Assistant remains responsible
+for pairing and credential storage.
+
+The read-only `smart_scene_studio/hue/list` command takes `bridge_id` and returns
+cached Hue V2 scene/light IDs and names plus this installation's `light.*` entity
+choices. The administrator-only `smart_scene_studio/hue/import` command takes
+`bridge_id`, an explicit `dry_run` boolean, optional Hue `scene_ids`, and an
+optional `target_mappings` object keyed by Hue light UUID and valued by HA
+`light.*` entity ID. Preview and commit refresh resources with the Hue V2 GET
+state operation. They do not issue scene recall or any Hue POST/PUT/DELETE.
+Preview also checks current Store capacity; committing saves scenes locally and
+syncs native `scene.*` entities. Imported activation uses only saved HA light
+targets, so the Bridge is not needed afterward.
+
+No mapping is inferred from a name. Unmatched Hue lamp IDs and source actions are
+retained in the local scene metadata and reported; the administrator-only
+`smart_scene_studio/hue/remap` command can map them later, including to new
+Zigbee2MQTT-backed `light.*` entities. Mapping preserves the saved scene palette
+and each Hue source lamp UUID. A missing HA entity or unsupported XY / color
+temperature capability produces a disabled target and a report entry. Exact CIE
+xy is retained; Mirek is converted to Kelvin and clamped to the mapped entity's
+advertised Kelvin range. Since Home Assistant does not expose a uniform light
+gamut contract, the report says when the target gamut could not be verified.
+
+Scenes are imported as static snapshots. Dynamic palettes, `auto_dynamic`,
+gradients, effects and Hue scene images are not executed or copied; they are
+explicitly flagged in source metadata and the import report. A re-import of the
+same Bridge + Hue scene UUID is skipped, preserving local edits. Different
+bridges retain independent source identities. The test fixtures contain only
+synthetic UUIDs and names; tests mock the Hue API and never contact a Bridge or a
+live Home Assistant installation.

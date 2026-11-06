@@ -107,7 +107,7 @@ async def async_apply_scene(
                 None,
             )
         if mode == "xy" and ColorMode.XY in modes:
-            payload[ATTR_XY_COLOR] = color_RGB_to_xy(*rgb)
+            payload[ATTR_XY_COLOR] = tuple(assignment.get("color_xy", color_RGB_to_xy(*rgb)))
         elif mode == "rgb" and ColorMode.RGB in modes:
             payload[ATTR_RGB_COLOR] = rgb
         elif mode == "hs" and ColorMode.HS in modes:
