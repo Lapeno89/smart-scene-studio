@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_TEMP_KELVIN,
@@ -21,8 +22,8 @@ from homeassistant.components.light import (
 from homeassistant.components.light import (
     DOMAIN as LIGHT_DOMAIN,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 from homeassistant.util.color import (
     color_RGB_to_hs,
     color_rgb_to_rgbw,
@@ -35,10 +36,19 @@ async def async_apply_scene(
     hass: HomeAssistant,
     scene: dict[str, Any],
     targets: list[str] | None = None,
+    context: Context | None = None,
 ) -> dict[str, Any]:
     """Apply colors sequentially, skipping absent, unavailable or incompatible lights."""
     assignments = scene.get("targets", [])
     selected = list(dict.fromkeys(targets or [item["entity_id"] for item in assignments]))
+    if context is not None and context.user_id is not None:
+        user = await hass.auth.async_get_user(context.user_id)
+        if user is None:
+            raise Unauthorized(context=context)
+        if not user.is_admin and any(
+            not user.permissions.check_entity(entity_id, POLICY_CONTROL) for entity_id in selected
+        ):
+            raise Unauthorized(context=context)
     by_id = {item["entity_id"]: item for item in assignments}
     results = {"applied": [], "skipped": [], "failed": []}
     for index, entity_id in enumerate(selected):
@@ -66,6 +76,7 @@ async def async_apply_scene(
                     SERVICE_TURN_OFF,
                     {"entity_id": entity_id, **transition_payload},
                     blocking=True,
+                    context=context,
                 )
             except HomeAssistantError:
                 results["failed"].append(entity_id)
@@ -139,6 +150,7 @@ async def async_apply_scene(
                 SERVICE_TURN_ON,
                 {"entity_id": entity_id, **payload},
                 blocking=True,
+                context=context,
             )
         except HomeAssistantError:
             results["failed"].append(entity_id)

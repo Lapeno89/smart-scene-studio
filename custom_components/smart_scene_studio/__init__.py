@@ -46,7 +46,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             scene = next((item for item in presets if item["id"] == scene_id), None)
         if scene is None:
             raise HomeAssistantError("Unknown Smart Scene Studio scene")
-        result = await async_apply_scene(hass, scene, targets)
+        result = await async_apply_scene(hass, scene, targets, context=call.context)
         return result if call.return_response else None
 
     hass.services.async_register(

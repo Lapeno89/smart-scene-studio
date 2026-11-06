@@ -14,7 +14,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DATA_PRESETS, DATA_REPOSITORY, DOMAIN
+from .const import DATA_PRESETS, DATA_REPOSITORY, DATA_SCENE_MANAGER, DOMAIN
 from .models import validate_scene
 from .repository import SceneRepository, UnsupportedStorageVersion
 
@@ -44,16 +44,25 @@ def async_setup(hass: HomeAssistant) -> None:
 
 def _get_runtime(
     hass: HomeAssistant,
-) -> tuple[SceneRepository, tuple[dict[str, Any], ...]]:
+) -> tuple[SceneRepository, tuple[dict[str, Any], ...], Any]:
     """Get the single configured scene repository and immutable presets."""
     domain_data = hass.data.get(DOMAIN, {})
     presets = domain_data.get(DATA_PRESETS)
     for value in domain_data.values():
         if isinstance(value, dict) and isinstance(value.get(DATA_REPOSITORY), SceneRepository):
-            if presets is None:
+            if presets is None or DATA_SCENE_MANAGER not in value:
                 raise HomeAssistantError("Built-in scene data is unavailable")
-            return value[DATA_REPOSITORY], tuple(presets)
+            return value[DATA_REPOSITORY], tuple(presets), value[DATA_SCENE_MANAGER]
     raise HomeAssistantError("Smart Scene Studio is not configured")
+
+
+async def _async_sync_entities(
+    manager: Any,
+    repository: SceneRepository,
+    presets: tuple[dict[str, Any], ...],
+) -> None:
+    """Reconcile the live scene platform after a successful repository write."""
+    await manager.async_sync((*presets, *repository.scenes))
 
 
 def _api_scene(scene: dict[str, Any], provenance: str) -> dict[str, Any]:
@@ -105,7 +114,7 @@ async def websocket_list_scenes(
 ) -> None:
     """Return immutable built-ins and the configured user's saved scenes."""
     _reject_extra_fields(msg, set())
-    repository, presets = _get_runtime(hass)
+    repository, presets, _ = _get_runtime(hass)
     scenes = [_api_scene(scene, "builtin") for scene in presets]
     scenes.extend(_api_scene(scene, "user") for scene in repository.scenes)
     connection.send_result(msg["id"], {"scenes": scenes})
@@ -126,7 +135,7 @@ async def websocket_get_scene(
 ) -> None:
     """Get one built-in or user-authored scene by immutable UUID."""
     _reject_extra_fields(msg, {"scene_id"})
-    repository, presets = _get_runtime(hass)
+    repository, presets, _ = _get_runtime(hass)
     scene, provenance = _find_scene(msg["scene_id"], repository, presets)
     if scene is None or provenance is None:
         raise HomeAssistantError("Scene not found")
@@ -149,7 +158,7 @@ async def websocket_create_scene(
     """Create a user scene with a server-generated immutable UUID."""
     _reject_extra_fields(msg, {"scene"})
     payload = _scene_payload(msg["scene"], _CREATE_FIELDS)
-    repository, _ = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
     scene = validate_scene(
         {
             **payload,
@@ -161,6 +170,7 @@ async def websocket_create_scene(
     )
     try:
         saved = await repository.async_save_scene(scene)
+        await _async_sync_entities(manager, repository, presets)
     except (ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
     connection.send_result(msg["id"], {"scene": _api_scene(saved, "user")})
@@ -187,7 +197,7 @@ async def websocket_update_scene(
         raise HomeAssistantError("Updates must be a non-empty object")
     if extra := updates.keys() - _UPDATE_FIELDS:
         raise HomeAssistantError(f"Unsupported update fields: {', '.join(sorted(extra))}")
-    repository, presets = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
     scene, provenance = _find_scene(msg["scene_id"], repository, presets)
     if scene is None:
         raise HomeAssistantError("Scene not found")
@@ -197,6 +207,7 @@ async def websocket_update_scene(
         updated = await repository.async_update_scene(
             msg["scene_id"], {**updates, "updated_at": _now()}
         )
+        await _async_sync_entities(manager, repository, presets)
     except (KeyError, ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
     connection.send_result(msg["id"], {"scene": _api_scene(updated, "user")})
@@ -218,7 +229,7 @@ async def websocket_duplicate_scene(
 ) -> None:
     """Clone a built-in or user scene as a new user-owned scene."""
     _reject_extra_fields(msg, {"scene_id", "name"})
-    repository, presets = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
     source, _ = _find_scene(msg["scene_id"], repository, presets)
     if source is None:
         raise HomeAssistantError("Scene not found")
@@ -239,6 +250,7 @@ async def websocket_duplicate_scene(
     )
     try:
         duplicate = await repository.async_save_scene(validate_scene(payload))
+        await _async_sync_entities(manager, repository, presets)
     except (ValueError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
     connection.send_result(msg["id"], {"scene": _api_scene(duplicate, "user")})
@@ -259,7 +271,7 @@ async def websocket_delete_scene(
 ) -> None:
     """Delete a user scene; built-in presets are immutable."""
     _reject_extra_fields(msg, {"scene_id"})
-    repository, presets = _get_runtime(hass)
+    repository, presets, manager = _get_runtime(hass)
     scene, provenance = _find_scene(msg["scene_id"], repository, presets)
     if scene is None:
         raise HomeAssistantError("Scene not found")
@@ -267,6 +279,7 @@ async def websocket_delete_scene(
         raise HomeAssistantError("Built-in scenes are read-only")
     try:
         await repository.async_delete_scene(msg["scene_id"])
+        await _async_sync_entities(manager, repository, presets)
     except (KeyError, UnsupportedStorageVersion) as err:
         raise HomeAssistantError(str(err)) from err
     connection.send_result(msg["id"], {"deleted": msg["scene_id"]})

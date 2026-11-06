@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
+from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
@@ -122,7 +123,9 @@ async def test_targetless_saved_scene_stays_unregistered_after_reload(hass) -> N
     assert hass.data[DOMAIN][entry.entry_id]["repository"].scenes[0]["id"] == scene_id
 
 
-async def test_native_scene_activates_its_assigned_light_after_reload(hass) -> None:
+async def test_native_scene_activates_its_assigned_light_after_reload(
+    hass, hass_admin_user
+) -> None:
     entry = await add_entry(hass)
     repository = hass.data[DOMAIN][entry.entry_id]["repository"]
     scene_id = str(uuid4())
@@ -147,13 +150,18 @@ async def test_native_scene_activates_its_assigned_light_after_reload(hass) -> N
     assert scene_entity.unique_id == scene_id
     assert hass.states.get(scene_entity.entity_id) is not None
     await hass.services.async_call(
-        "scene", "turn_on", {"entity_id": scene_entity.entity_id}, blocking=True
+        "scene",
+        "turn_on",
+        {"entity_id": scene_entity.entity_id},
+        blocking=True,
+        context=Context(user_id=hass_admin_user.id),
     )
 
     light_call.assert_awaited_once()
     payload = light_call.await_args.args[0].data
     assert payload["entity_id"] == "light.test_lamp"
     assert "rgb_color" in payload
+    assert light_call.await_args.args[0].context.user_id == hass_admin_user.id
 
 
 async def test_store_persists_scene_identity(hass) -> None:

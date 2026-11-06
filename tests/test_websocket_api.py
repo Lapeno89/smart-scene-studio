@@ -1,12 +1,16 @@
 """Authenticated scene CRUD API tests; the websocket server is test-only."""
 
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.components.light import ColorMode
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import Unauthorized
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
-from custom_components.smart_scene_studio.const import DOMAIN
+from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
 from tests.test_integration import add_entry
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -96,6 +100,115 @@ async def test_scene_crud_and_builtin_immutability(
     assert not missing["success"]
 
 
+async def test_native_scene_entities_track_crud_without_reload(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Create, rename, unassign, reassign and delete native scenes live."""
+    await add_entry(hass)
+    client = await hass_ws_client(hass)
+    create = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Live scene",
+                "targets": [{"entity_id": "light.test_lamp"}],
+            },
+        },
+    )
+    assert create["success"]
+    scene_id = create["result"]["scene"]["id"]
+    entity = hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id]
+    entity_id = entity.entity_id
+    assert entity.unique_id == scene_id
+    assert hass.states.get(entity_id) is not None
+
+    renamed = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/update",
+            "scene_id": scene_id,
+            "updates": {"name": "Renamed live scene"},
+        },
+    )
+    assert renamed["success"]
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id] is entity
+    assert hass.states.get(entity_id).name == "Renamed live scene"
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id].unique_id == scene_id
+
+    unassigned = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/update",
+            "scene_id": scene_id,
+            "updates": {"targets": []},
+        },
+    )
+    assert unassigned["success"]
+    assert scene_id not in hass.data[DOMAIN][DATA_SCENE_ENTITIES]
+    assert hass.states.get(entity_id) is None
+
+    reassigned = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/update",
+            "scene_id": scene_id,
+            "updates": {"targets": [{"entity_id": "light.test_lamp"}]},
+        },
+    )
+    assert reassigned["success"]
+    restored = hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id]
+    assert restored.unique_id == scene_id
+    assert restored.entity_id == entity_id
+    assert hass.states.get(entity_id) is not None
+
+    deleted = await request(client, {"type": f"{DOMAIN}/scene/delete", "scene_id": scene_id})
+    assert deleted["success"]
+    assert scene_id not in hass.data[DOMAIN][DATA_SCENE_ENTITIES]
+    assert hass.states.get(entity_id) is None
+    assert er.async_get(hass).async_get_entity_id("scene", DOMAIN, scene_id) is None
+
+
+async def test_native_scene_enforces_mapped_light_control_permission(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_admin_user,
+    monkeypatch,
+) -> None:
+    """A non-admin cannot activate a scene targeting a light they cannot control."""
+    await add_entry(hass)
+    client = await hass_ws_client(hass)
+    create = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Restricted target",
+                "targets": [{"entity_id": "light.test_lamp"}],
+            },
+        },
+    )
+    scene_id = create["result"]["scene"]["id"]
+    scene_entity = hass.data[DOMAIN][DATA_SCENE_ENTITIES][scene_id]
+    hass_admin_user.groups = []
+    monkeypatch.setattr(
+        hass_admin_user.permissions,
+        "check_entity",
+        lambda entity_id, permission: False,
+    )
+    scene_entity.async_set_context(Context(user_id=hass_admin_user.id))
+    light_call = AsyncMock()
+    hass.services.async_register("light", "turn_on", light_call)
+    hass.states.async_set("light.test_lamp", "off", {"supported_color_modes": [ColorMode.RGB]})
+
+    with pytest.raises(Unauthorized):
+        await scene_entity.async_activate()
+
+    light_call.assert_not_awaited()
+
+
 async def test_scene_crud_requires_admin_for_mutations(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
@@ -158,6 +271,36 @@ async def test_scene_api_rejects_unknown_fields_and_invalid_models(
         },
     )
     assert not invalid_target["success"]
+
+
+async def test_scene_api_does_not_report_success_after_store_failure(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, monkeypatch
+) -> None:
+    """A failed Store write returns an error and registers no transient entity."""
+    entry = await add_entry(hass)
+    repository = hass.data[DOMAIN][entry.entry_id]["repository"]
+    monkeypatch.setattr(
+        repository._store,
+        "async_save",
+        AsyncMock(side_effect=OSError("simulated Store failure")),
+    )
+    client = await hass_ws_client(hass)
+
+    response = await request(
+        client,
+        {
+            "type": f"{DOMAIN}/scene/create",
+            "scene": {
+                **CREATE_SCENE,
+                "name": "Not persisted",
+                "targets": [{"entity_id": "light.test_lamp"}],
+            },
+        },
+    )
+
+    assert not response["success"]
+    assert repository.scenes == ()
+    assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
 
 
 async def test_anonymous_websocket_cannot_access_scene_api(

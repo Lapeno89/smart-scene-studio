@@ -10,6 +10,13 @@
 - Runtime: no direct Zigbee2MQTT publish and no actual HA device control in tests.
 - Stability: rename scene without changing `unique_id`, delete scene removes registry entity, builtin presets immutable.
 
+## PR-002 scene API and entity synchronization
+- WebSocket access: anonymous handshakes cannot enter command phase; authenticated users can list/get; non-admin mutation attempts fail; administrator CRUD succeeds.
+- Live native entity sync: targetful create registers `scene.*`; rename keeps the entity instance and `unique_id`; removing all enabled targets unloads the entity; restoring targets reuses its entity ID; delete removes it without integration reload.
+- Persistence/recovery: API-created scenes survive integration reload; concurrent update/delete leave Store and memory consistent; Store failures do not return success or publish transient entities; count and serialized-size limits reject before writing.
+- Compatibility: PR-001 schema-v1 scenes load with the same UUID; unsupported future storage versions remain read-only and are not overwritten.
+- Authorization: scene data visibility is shared for authenticated users, writes require an admin, and activating a scene checks `POLICY_CONTROL` for each assigned light while preserving caller context.
+
 ## Later photo/gallery tests
 - Images: JPEG/PNG, rotated EXIF, all-white, all-black, low-light, dominant colorful object, transparent PNG, oversized pixel count, corrupt/truncated data and path traversal attempts.
 - Palette count: 2–8, deterministic for fixed seed/settings, duplicates are handled, editable output survives reload.
