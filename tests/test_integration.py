@@ -192,17 +192,31 @@ async def test_scene_turn_on_uses_each_callers_real_entity_permissions(
             name="Scene light allowlist",
             policy={
                 "entities": {
-                    "entity_ids": {"light.allowed": {"control": True}},
+                    "entity_ids": {
+                        scene_entity.entity_id: {"control": True},
+                        "light.allowed": {"control": True},
+                    },
                 }
             },
         )
     ]
     denied_user = await hass.auth.async_create_user("Scene control denied")
-    denied_user.groups = []
+    denied_user.groups = [
+        Group(
+            name="Scene-only access",
+            policy={
+                "entities": {
+                    "entity_ids": {scene_entity.entity_id: {"control": True}},
+                }
+            },
+        )
+    ]
 
     assert not allowed_user.is_admin
     assert not denied_user.is_admin
+    assert allowed_user.permissions.check_entity(scene_entity.entity_id, "control")
     assert allowed_user.permissions.check_entity("light.allowed", "control")
+    assert denied_user.permissions.check_entity(scene_entity.entity_id, "control")
     assert not denied_user.permissions.check_entity("light.allowed", "control")
 
     hass.states.async_set("light.allowed", "off", {"supported_color_modes": [ColorMode.RGB]})
