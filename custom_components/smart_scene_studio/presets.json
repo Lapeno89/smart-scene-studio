@@ -1,5 +1,13 @@
 [
   {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30001","name":"Amber Evening","kind":"static","category":"ambient","favorite":false,"palette":["#FF9F43","#FFD166"],"targets":[],"brightness_pct":65,"transition":1},
   {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30002","name":"Ocean Calm","kind":"static","category":"ambient","favorite":false,"palette":["#168AAD","#76C893","#B7E4C7"],"targets":[],"brightness_pct":55,"transition":1},
-  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30003","name":"Rose Dawn","kind":"static","category":"ambient","favorite":false,"palette":["#F28482","#F6BD60","#F7EDE2"],"targets":[],"brightness_pct":70,"transition":1}
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30003","name":"Rose Dawn","kind":"static","category":"ambient","favorite":false,"palette":["#F28482","#F6BD60","#F7EDE2"],"targets":[],"brightness_pct":70,"transition":1},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30004","name":"Quiet Rain","kind":"static","category":"relax","favorite":false,"palette":["#3D5A80","#98C1D9","#E0FBFC"],"targets":[],"brightness_pct":45,"transition":2},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30005","name":"Focus Grove","kind":"static","category":"focus","favorite":false,"palette":["#264653","#2A9D8F","#E9C46A"],"targets":[],"brightness_pct":80,"transition":0.5},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30006","name":"Hearth Glow","kind":"static","category":"warm_evening","favorite":false,"palette":["#9C3D10","#E76F51","#F4A261"],"targets":[],"brightness_pct":55,"transition":1.5},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30007","name":"Tidal Blue","kind":"static","category":"ocean","favorite":false,"palette":["#0077B6","#48CAE4","#90E0EF"],"targets":[],"brightness_pct":60,"transition":1},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30008","name":"Moss Canopy","kind":"static","category":"forest","favorite":false,"palette":["#386641","#6A994E","#A7C957"],"targets":[],"brightness_pct":50,"transition":1.5},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30009","name":"Last Light","kind":"static","category":"sunset","favorite":false,"palette":["#7B2CBF","#E56B6F","#FFB703"],"targets":[],"brightness_pct":60,"transition":2},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30010","name":"Candle White","kind":"static","category":"white","favorite":false,"palette":["#FFF0D5","#FFE0A3"],"targets":[],"brightness_pct":45,"transition":2,"white_temperature_kelvin":2700},
+  {"id":"b88ea8a1-0db4-4df5-9e91-4d93a3d30011","name":"Clear White","kind":"static","category":"white","favorite":false,"palette":["#F3F6FF","#E5ECF7"],"targets":[],"brightness_pct":75,"transition":1,"white_temperature_kelvin":4000}
 ]

@@ -39,6 +39,20 @@ def test_export_is_allowlisted_and_preserves_scene_provenance():
     assert "private_data" not in exported["scenes"][1]
 
 
+def test_white_template_temperature_round_trips_in_portable_bundle():
+    white_template = {**scene(), "white_temperature_kelvin": 2700}
+    exported = create_export_bundle([], (white_template,))
+    imported = plan_scene_import(
+        exported,
+        {"light.source": "light.destination"},
+        (),
+        [],
+        now="2026-01-01T00:00:00+00:00",
+    )
+
+    assert imported["scenes"][0]["white_temperature_kelvin"] == 2700
+
+
 def test_import_maps_explicitly_and_disables_unmapped_targets():
     source = scene()
     source["targets"].append({"entity_id": "light.unavailable", "color_index": 1})

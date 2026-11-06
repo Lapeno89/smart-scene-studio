@@ -38,8 +38,9 @@ and reports its status.
 
 Create requires a non-empty `name` and a `palette` containing 2–8 `#RRGGBB`
 colors. Optional fields are `category`, `favorite`, `targets`,
-`brightness_pct`, and `transition`; the shared scene validator applies the same
-limits as persisted scene definitions. IDs, timestamps, provenance, unknown
+`brightness_pct`, `transition`, and `white_temperature_kelvin`; the shared
+scene validator applies the same limits as persisted scene definitions. IDs,
+timestamps, provenance, unknown
 fields, malformed targets, and oversized command bodies are rejected. Updates
 preserve the original UUID and creation timestamp. Built-ins cannot be edited
 or deleted; duplicate one to create a user-owned copy.
@@ -90,6 +91,12 @@ No Hue Bridge, network address, household entity ID, token, or production Home
 Assistant data is embedded in the integration or test fixtures.
 
 ## Optional Hue API V2 import
+
+The original built-in templates include relax, focus, warm-evening, ocean,
+forest, sunset, and explicit white-light variants. They are locally authored
+palettes without Hue images or logos. A scene with `white_temperature_kelvin`
+sends only Kelvin to compatible `light.*` entities; entities without
+color-temperature support are skipped instead of receiving an RGB/XY substitute.
 
 Hue import is optional. Smart Scene Studio works without Philips Hue installed.
 To import, first configure the official Home Assistant **Philips Hue** integration

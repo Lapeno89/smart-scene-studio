@@ -16,7 +16,7 @@ from .models import validate_scene
 BUNDLE_FORMAT = f"{DOMAIN}.scene_bundle"
 BUNDLE_VERSION = 1
 MAX_BUNDLE_BYTES = 1_048_576
-MAX_BUNDLE_SCENES = 503  # 500 user scenes plus the original built-in presets.
+MAX_BUNDLE_SCENES = 511  # 500 user scenes plus the 11 original built-in presets.
 _LIGHT_ENTITY_ID = re.compile(r"^light\.[a-z0-9_]+$")
 _SCENE_FIELD_ORDER = (
     "id",
@@ -28,6 +28,7 @@ _SCENE_FIELD_ORDER = (
     "targets",
     "brightness_pct",
     "transition",
+    "white_temperature_kelvin",
     "created_at",
     "updated_at",
     "source",
@@ -43,6 +44,7 @@ _CONTENT_FIELDS = (
     "targets",
     "brightness_pct",
     "transition",
+    "white_temperature_kelvin",
 )
 
 
