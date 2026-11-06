@@ -12,7 +12,7 @@ Smart Scene Studio is an original Home Assistant custom integration for saved st
 - Brightness is included only for dimmable lights. Transition is included only when the entity advertises transition support.
 - Saved target assignments can be disabled, set to turn off, or given an explicit RGB color without changing scene identity.
 
-User scenes are currently written through the repository layer; a user-facing editor and CRUD action are not part of PR-001. Changes made through the internal repository are exposed as scene entities after reloading the integration, but only when at least one enabled light target is assigned. Targetless built-in presets remain available through the `apply_scene` action with explicit light entity IDs; they are not exposed as native scenes that would do nothing when activated.
+Saved scenes can be managed through the authenticated Home Assistant WebSocket API described in [the scene API contract](docs/SCENE_API.md). Reads require an authenticated Home Assistant session; mutations require an administrator. Built-ins are read-only and can be duplicated into editable user scenes. Native `scene.*` entities are synchronized immediately after CRUD writes, preserve their UUID when renamed or reassigned, and are exposed only while a scene has at least one enabled light target. Targetless built-in presets remain available through the `apply_scene` action with explicit light entity IDs; they are not exposed as native scenes that would do nothing when activated.
 
 ## Installation
 
