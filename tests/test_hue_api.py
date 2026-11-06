@@ -136,15 +136,16 @@ async def test_hue_v2_list_preview_import_and_deferred_remap_are_local(
         if isinstance(data, dict) and "scene_manager" in data
     )
     turn_on = AsyncMock()
-    monkeypatch.setattr(hass.services, "async_call", turn_on)
+    turn_off = AsyncMock()
+    hass.services.async_register("light", "turn_on", turn_on)
+    hass.services.async_register("light", "turn_off", turn_off)
     await manager.entities[scene_id].async_activate()
     xy_calls = [
         call
         for call in turn_on.await_args_list
-        if call.args[1] == "turn_on"
-        and call.kwargs["service_data"].get("entity_id") == "light.fixture_color"
+        if call.args[0].data.get("entity_id") == "light.fixture_color"
     ]
-    assert xy_calls[0].kwargs["service_data"]["xy_color"] == (0.32, 0.33)
+    assert xy_calls[0].args[0].data["xy_color"] == (0.32, 0.33)
 
     remapped = await request(
         client,
