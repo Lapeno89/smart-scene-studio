@@ -311,7 +311,9 @@ export class SmartSceneStudioPanel extends LitElement {
         <h2>${this.t("details")}</h2>
         ${this.palette(s)}
         <p><strong>${s.name}</strong></p>
-        <p class="subtle">${s.category} · ${this.origin(s)}</p>
+        <p class="subtle">
+          ${this.t("sceneType")}: ${s.kind} · ${s.category} · ${this.origin(s)}
+        </p>
         <dl>
           ${s.brightness_pct !== undefined
             ? html`<dt>${this.t("brightness")}</dt>
@@ -327,12 +329,24 @@ export class SmartSceneStudioPanel extends LitElement {
         <h2>${this.t("savedTargets")}</h2>
         ${assigned.length
           ? html`<ul>
-              ${assigned.map((t) => html`<li>${t.entity_id}</li>`)}
+              ${assigned.map(
+                (t) =>
+                  html`<li>
+                    ${t.entity_id}${t.enabled === false
+                      ? ` · ${this.t("disabledTarget")}`
+                      : ""}
+                  </li>`,
+              )}
             </ul>`
           : html`<p class="subtle">${this.t("noLights")}</p>`}${missing.length
           ? html`<p class="notice">
               ${this.t("missingTargets")}:
               ${missing.map((t) => t.entity_id).join(", ")}
+            </p>`
+          : nothing}${s.source?.missing_light_ids?.length
+          ? html`<p class="notice">
+              ${this.t("missingTargets")}:
+              ${s.source.missing_light_ids.join(", ")}
             </p>`
           : nothing}${unavailable.length
           ? html`<p class="notice">
@@ -352,11 +366,13 @@ export class SmartSceneStudioPanel extends LitElement {
           : nothing}
       </section>
       <section class="panel">
-        <h2>${this.t("targets")}</h2>
+        <h2>${this.t("targets")} (${this.targets.size}/64)</h2>
         ${this.lights.length
           ? html`<div class="lights">
               ${this.lights.map((l) => {
                 const off = ["unknown", "unavailable"].includes(l.state);
+                const atLimit =
+                  !this.targets.has(l.entity_id) && this.targets.size >= 64;
                 const modes = l.attributes.supported_color_modes;
                 const unsupported =
                   s.palette.length > 0 &&
@@ -370,7 +386,8 @@ export class SmartSceneStudioPanel extends LitElement {
                   ><input
                     type="checkbox"
                     .checked=${this.targets.has(l.entity_id)}
-                    .disabled=${off}
+                    .disabled=${off || atLimit}
+                    .title=${atLimit ? this.t("targetLimit") : ""}
                     @change=${(e: Event) => {
                       const n = new Set(this.targets);
                       const checked = (e.currentTarget as HTMLInputElement)

@@ -16,6 +16,7 @@ const savedScene: SceneDefinition = {
   id: "scene-2",
   name: "Desk Glow",
   category: "focus",
+  targets: [{ entity_id: "light.missing", enabled: false }],
   provenance: "user",
 };
 const hueScene: SceneDefinition = {
@@ -92,6 +93,13 @@ describe("Smart Scene Studio panel", () => {
     expect(panel.shadowRoot?.textContent).toContain("Scenes are saved");
     expect(panel.shadowRoot?.textContent).toContain("Desk Glow");
     expect(panel.shadowRoot?.textContent).toContain("Hue import");
+    const savedCard = [
+      ...(panel.shadowRoot?.querySelectorAll(".card") ?? []),
+    ].find((card) => card.textContent?.includes("Desk Glow"));
+    savedCard?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle(panel);
+    expect(panel.shadowRoot?.textContent).toContain("Disabled");
+    expect(panel.shadowRoot?.textContent).toContain("Type: static");
     const category = panel.shadowRoot?.querySelector(
       "select",
     ) as HTMLSelectElement;
