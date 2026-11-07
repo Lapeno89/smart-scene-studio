@@ -20,7 +20,7 @@ from .const import (
 PANEL_URL_PATH = "smart-scene-studio"
 PANEL_ELEMENT = "smart-scene-studio-panel"
 PANEL_ASSET_URL = "/api/smart_scene_studio/frontend/smart-scene-studio.js"
-PANEL_ASSET_VERSION = "0.1.0-ui001"
+PANEL_ASSET_VERSION = "0.1.0-alpha.1"
 PANEL_ASSET_PATH = Path(__file__).parent / "frontend" / "dist" / "smart-scene-studio.js"
 
 
