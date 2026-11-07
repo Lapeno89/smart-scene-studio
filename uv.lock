@@ -1232,6 +1232,15 @@ wheels = [
 ]
 
 [[package]]
+name = "home-assistant-frontend"
+version = "20261028.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/c8/32edabf95f4a781719bd596f8a5a502d15cfc5165bfe7c066b26caadad6d/home_assistant_frontend-20261028.4.tar.gz", hash = "sha256:ec4763fb0064f5f58b0c4f7d6127b93ead5367df3e858053b9ed4e76e4e8a0ad", size = 116686351, upload-time = "2026-11-04T11:26:19.143Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/54/7505239a71ab5a850da8ea0283722e26d504a754aa41d8263e1637f02c82/home_assistant_frontend-20261028.4-py3-none-any.whl", hash = "sha256:e5e59b82e63b288323d35886272f2e490ee62f6c7aaa2c56e7ef45e300d44757", size = 117422576, upload-time = "2026-11-04T11:26:14.208Z" },
+]
+
+[[package]]
 name = "homeassistant"
 version = "2026.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2874,6 +2883,7 @@ dependencies = [
 
 [package.dev-dependencies]
 test = [
+    { name = "home-assistant-frontend" },
     { name = "pytest" },
     { name = "pytest-homeassistant-custom-component" },
     { name = "ruff" },
@@ -2884,6 +2894,7 @@ requires-dist = [{ name = "homeassistant", specifier = "==2026.11.0" }]
 
 [package.metadata.requires-dev]
 test = [
+    { name = "home-assistant-frontend", specifier = "==20261028.4" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.375" },
     { name = "ruff", specifier = "==0.14.3" },
