@@ -1,0 +1,31 @@
+{
+  "name": "smart-scene-studio-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check \"src/**/*.ts\" \"*.ts\" \"*.json\"",
+    "test": "vitest run --pool=threads --maxWorkers=1 --no-file-parallelism",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "lit": "3.3.1"
+  },
+  "devDependencies": {
+    "@types/jsdom": "21.1.7",
+    "@types/node": "^24.10.0",
+    "jsdom": "26.1.0",
+    "prettier": "^3.6.2",
+    "typescript": "5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

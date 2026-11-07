@@ -18,6 +18,7 @@ from .const import (
     PLATFORMS,
     SERVICE_APPLY_SCENE,
 )
+from .frontend_panel import async_register_frontend, async_unregister_frontend
 from .light_control import async_apply_scene
 from .repository import SceneRepository, UnsupportedStorageVersion
 from .websocket_api import async_load_presets
@@ -76,6 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {DATA_REPOSITORY: repository}
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_register_frontend(hass, entry)
     return True
 
 
@@ -83,6 +85,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload platforms and release entry data."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
+    async_unregister_frontend(hass, entry)
     hass.data[DOMAIN].pop(entry.entry_id, None)
     hass.data[DOMAIN].pop(DATA_SCENE_ENTITIES, None)
     return True

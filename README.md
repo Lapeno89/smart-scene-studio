@@ -18,6 +18,8 @@ Saved scenes can be managed through the authenticated Home Assistant WebSocket A
 
 Copy `custom_components/smart_scene_studio` into the Home Assistant configuration's `custom_components` directory, restart Home Assistant, then add **Smart Scene Studio** through **Settings → Devices & services → Add integration**. Marketplace distribution requires adding the repository through the supported community integration workflow.
 
+After setup, the **Smart Scene Studio** sidebar panel is registered automatically. Its compiled JavaScript ships inside the integration package; an installed Home Assistant instance does not need Node.js, a CDN, or a manual `/config/www` copy.
+
 ## Apply a preset
 
 Use the `smart_scene_studio.apply_scene` action with a preset UUID and one or more light entity IDs. Example:
