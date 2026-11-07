@@ -5,12 +5,18 @@ from uuid import uuid4
 
 import pytest
 from homeassistant.auth.models import Group
+from homeassistant.components import frontend
 from homeassistant.components.light import ColorMode, LightEntityFeature
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
-from custom_components.smart_scene_studio.const import DATA_SCENE_ENTITIES, DOMAIN
+from custom_components.smart_scene_studio.const import (
+    DATA_FRONTEND_PANEL_ENTRY,
+    DATA_SCENE_ENTITIES,
+    DOMAIN,
+)
+from custom_components.smart_scene_studio.frontend_panel import PANEL_URL_PATH
 from custom_components.smart_scene_studio.repository import (
     SceneRepository,
     UnsupportedStorageVersion,
@@ -32,6 +38,8 @@ async def add_entry(hass):
 
 async def test_config_flow_and_clean_unload(hass) -> None:
     entry = await add_entry(hass)
+    assert frontend.async_panel_exists(hass, PANEL_URL_PATH)
+    assert hass.data[DOMAIN][DATA_FRONTEND_PANEL_ENTRY] == entry.entry_id
     assert hass.data[DOMAIN][DATA_SCENE_ENTITIES] == {}
     for object_id in (
         "amber_evening",
@@ -49,7 +57,19 @@ async def test_config_flow_and_clean_unload(hass) -> None:
         assert hass.states.get(f"scene.{object_id}") is None
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+    assert not frontend.async_panel_exists(hass, PANEL_URL_PATH)
     assert DATA_SCENE_ENTITIES not in hass.data[DOMAIN]
+
+
+async def test_panel_registration_survives_config_entry_reload(hass) -> None:
+    entry = await add_entry(hass)
+    assert frontend.async_panel_exists(hass, PANEL_URL_PATH)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert frontend.async_panel_exists(hass, PANEL_URL_PATH)
+    assert hass.data[DOMAIN][DATA_FRONTEND_PANEL_ENTRY] == entry.entry_id
 
 
 async def test_service_skips_unsupported_and_unavailable(hass) -> None:

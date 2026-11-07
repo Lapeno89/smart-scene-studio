@@ -20,3 +20,45 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.20.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run check
+        working-directory: frontend
+  alpha-package:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/ui-001-gallery-panel'
+    needs: [checks, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14.2"
+      - name: Build and verify release candidate ZIP
+        run: python scripts/build_release_zip.py
+      - name: Verify exact source commit, archive, and checksum
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cd release_artifacts
+          sha256sum -c Smart-Scene-Studio-v0.1.0-alpha.1.zip.sha256
+          unzip -t Smart-Scene-Studio-v0.1.0-alpha.1.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Smart-Scene-Studio-v0.1.0-alpha.1-${{ github.sha }}
+          path: |
+            release_artifacts/Smart-Scene-Studio-v0.1.0-alpha.1.zip
+            release_artifacts/Smart-Scene-Studio-v0.1.0-alpha.1.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
