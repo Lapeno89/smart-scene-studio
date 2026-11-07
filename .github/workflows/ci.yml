@@ -51,8 +51,9 @@ jobs:
       - name: Verify exact source commit, archive, and checksum
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          sha256sum -c release_artifacts/Smart-Scene-Studio-v0.1.0-alpha.1.zip.sha256
-          unzip -t release_artifacts/Smart-Scene-Studio-v0.1.0-alpha.1.zip
+          cd release_artifacts
+          sha256sum -c Smart-Scene-Studio-v0.1.0-alpha.1.zip.sha256
+          unzip -t Smart-Scene-Studio-v0.1.0-alpha.1.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Smart-Scene-Studio-v0.1.0-alpha.1-${{ github.sha }}
